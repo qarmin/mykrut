@@ -1,0 +1,83 @@
+import { ColorPalette, Translations, ProgressDialogCallbacks } from "../globals.slint";
+import { ProgressData } from "structs.slint";
+import { Button, ProgressIndicator } from "std-widgets.slint";
+
+export component ProgressDialog inherits Rectangle {
+    in property <ProgressData> data;
+
+    background: #00000088;
+
+    // Block clicks to the rest of the UI.
+    TouchArea {
+        scroll-event(event) => { accept }
+    }
+
+    Rectangle {
+        x: (parent.width - 460px) / 2;
+        y: (parent.height - 180px) / 2;
+        width: 460px;
+        height: 180px;
+        background: ColorPalette.bg-panel;
+        border-color: ColorPalette.border-subtle;
+        border-width: 1px;
+        border-radius: 10px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000080;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 10px;
+
+            Text {
+                text: data.op + "…";
+                color: ColorPalette.text-primary;
+                font-size: 15px;
+                font-weight: 700;
+            }
+
+            Text {
+                text: data.current;
+                color: ColorPalette.text-secondary;
+                font-size: 12px;
+                overflow: elide;
+            }
+
+            ProgressIndicator {
+                progress: data.percent;
+                height: 8px;
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+                Text {
+                    text: data.files-done + " " + Translations.progress-files-of + " " + data.files-total
+                        + (data.bytes-text != "" ? "  ·  " + data.bytes-text : "");
+                    color: ColorPalette.text-secondary;
+                    font-size: 11px;
+                }
+                Text {
+                    text: round(data.percent * 100) + " %";
+                    color: ColorPalette.text-secondary;
+                    font-size: 11px;
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button {
+                    text: data.paused ? Translations.progress-resume : Translations.progress-pause;
+                    clicked => { ProgressDialogCallbacks.pause-requested(!data.paused); }
+                }
+                Button {
+                    text: Translations.dlg-cancel;
+                    clicked => { ProgressDialogCallbacks.cancel-requested(); }
+                }
+            }
+        }
+    }
+}

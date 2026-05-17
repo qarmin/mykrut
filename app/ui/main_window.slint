@@ -1,0 +1,518 @@
+import { ColorPalette, Translations, Settings, AppState, Callabler, AppViewMode, SortKey, SortOrder, SelectMode, DialogState, ProgressDialogCallbacks, SearchState, PathSegment, TabInfo, NavKey, IconStyle, DragState } from "globals.slint";
+import { Icon } from "icons.slint";
+import { FileRowData, ProgressData, PlaceItemData, PropertiesData, BulkRenameRow, OpenWithApp, PropKv } from "components/structs.slint";
+import { Toolbar } from "components/toolbar.slint";
+import { FileListView } from "components/file_list_view.slint";
+import { FileGridView } from "components/file_grid_view.slint";
+import { StatusBar } from "components/status_bar.slint";
+import { DeleteConfirmDialog, RenameDialog, NewFolderDialog, NewFileDialog, BulkOpenConfirmDialog, EmptyTrashConfirmDialog, RemoteMountDialog, NavErrorDialog, ExtractPasswordDialog, OpenWithDialog, CompressDialog, ConflictDialog } from "components/dialogs.slint";
+import { BulkRenameDialog } from "components/bulk_rename_dialog.slint";
+import { ProgressDialog } from "components/progress_dialog.slint";
+import { PropertiesDialog } from "components/properties_dialog.slint";
+import { PlacesSidebar } from "components/places_sidebar.slint";
+import { SearchBar } from "components/search_bar.slint";
+import { PaneArea } from "components/pane_area.slint";
+import { Palette } from "std-widgets.slint";
+
+export {
+    // Globals (singletons) — every one declared in globals.slint must appear here
+    // so Rust can reach it via `app.global::<X>()`.
+    Settings,
+    ColorPalette,
+    Translations,
+    AppState,
+    Callabler,
+    DialogState,
+    ProgressDialogCallbacks,
+    SearchState,
+    DragState,
+
+    // Enums
+    AppViewMode,
+    SortKey,
+    SortOrder,
+    SelectMode,
+    NavKey,
+    IconStyle,
+
+    // Structs
+    FileRowData,
+    ProgressData,
+    PlaceItemData,
+    PropertiesData,
+    PathSegment,
+    TabInfo,
+    BulkRenameRow,
+    OpenWithApp,
+    PropKv,
+}
+
+export component MainWindow inherits Window {
+    in property <[FileRowData]> rows;
+    in property <[FileRowData]> search-rows;
+    in property <[PlaceItemData]> places;
+    in property <int> selected-count: 0;
+    in property <bool> single-selection: false;
+    in property <bool> selection-is-dir: false;
+    in property <bool> clipboard-has-items: false;
+    in property <bool> selection-in-trash: false;
+    in property <[TabInfo]> tabs;
+    // The inactive (non-focused) split pane's own tab list.
+    in property <[TabInfo]> inactive-tabs;
+    in property <[BulkRenameRow]> bulk-rename-rows;
+    in property <[OpenWithApp]> open-with-apps;
+    in property <[PropKv]> properties-media-rows;
+    // Split view
+    in property <bool> split-active: false;
+    in property <bool> active-is-right: false;
+    /// Physical side hosting the search overlay (false=left, true=right). Set
+    /// when search opens and pinned there even if focus later moves panes.
+    in property <bool> search-on-right: false;
+    in property <[FileRowData]> inactive-rows;
+    in property <string> inactive-path: "";
+    in property <bool> inactive-in-trash: false;
+    in property <ProgressData> progress;
+    in property <PropertiesData> properties;
+
+    title: AppState.is-root
+        ? Translations.window-title + " — " + Translations.banner-root-warning
+        : Translations.window-title;
+    background: ColorPalette.bg-window;
+    preferred-width: 1100px;
+    preferred-height: 700px;
+    min-width: 600px;
+    min-height: 400px;
+
+    forward-focus: keyboard;
+
+    private property <bool> dark-mirror: Settings.dark-theme;
+    init => {
+        Palette.color-scheme = Settings.dark-theme ? ColorScheme.dark : ColorScheme.light;
+        AppState.selected-count = root.selected-count;
+    }
+    changed dark-mirror => {
+        Palette.color-scheme = self.dark-mirror ? ColorScheme.dark : ColorScheme.light;
+    }
+    // Mirror selected-count into the AppState global so popups can read it.
+    private property <int> selected-mirror: root.selected-count;
+    changed selected-mirror => {
+        AppState.selected-count = self.selected-mirror;
+    }
+
+    keyboard := FocusScope {
+        // Anything that grabs focus (SearchBar LineEdit, path-bar edit,
+        // dialogs, popups) leaves the FocusScope without focus once it
+        // closes — keys + shortcuts silently stop working. Watch UI-state
+        // flags and pull focus back whenever the grabbers go away.
+        property <bool> search-mirror: SearchState.active;
+        changed search-mirror => {
+            if !self.search-mirror {
+                keyboard.focus();
+                Callabler.debug-ctrl-change(false, "refocus-after-search");
+            }
+        }
+        property <bool> any-dialog: DialogState.delete-confirm-open
+            || DialogState.rename-open
+            || DialogState.new-folder-open
+            || DialogState.new-file-open
+            || DialogState.bulk-open-confirm-open
+            || DialogState.empty-trash-confirm-open
+            || DialogState.remote-mount-open
+            || DialogState.nav-error-open
+            || DialogState.bulk-rename-open
+            || DialogState.properties-open
+            || DialogState.extract-password-open
+            || DialogState.open-with-open
+            || DialogState.compress-open
+            || DialogState.conflict-open;
+        changed any-dialog => {
+            if !self.any-dialog { keyboard.focus(); }
+        }
+        property <bool> path-edit-mirror: AppState.path-edit-active;
+        changed path-edit-mirror => {
+            if !self.path-edit-mirror { keyboard.focus(); }
+        }
+        // Clicks inside the file views can leave focus on the grid's ScrollView,
+        // which swallows global shortcuts; reclaim it whenever a click bumps the
+        // focus nonce.
+        property <int> focus-nonce-mirror: AppState.focus-nonce;
+        changed focus-nonce-mirror => { keyboard.focus(); }
+
+        // Slint 1.16 wheel events don't carry live modifier state; track Ctrl
+        // here and read AppState.ctrl-held from scroll-event handlers instead.
+        // Updated on EVERY key event so transient state stays in sync.
+        key-pressed(event) => {
+            if AppState.ctrl-held != event.modifiers.control {
+                Callabler.debug-ctrl-change(event.modifiers.control, "key-pressed");
+            }
+            AppState.ctrl-held = event.modifiers.control;
+            // Some platforms/backends deliver Ctrl+A as the SOH control char
+            // (\u{0001}) instead of "a", and CapsLock can produce "A".
+            if event.modifiers.control
+               && (event.text == "a" || event.text == "A" || event.text == "\u{1}") {
+                Callabler.select-all();
+                return accept;
+            }
+            if event.text == "f" && event.modifiers.control {
+                Callabler.open-search();
+                return accept;
+            }
+            if event.text == Key.Escape {
+                // Conflict prompt blocks a running transfer — Esc must answer it
+                // (cancel the op), not just hide the dialog.
+                if DialogState.conflict-open { Callabler.conflict-chosen(3, false); return accept; }
+                if DialogState.delete-confirm-open { DialogState.delete-confirm-open = false; return accept; }
+                if DialogState.rename-open { DialogState.rename-open = false; return accept; }
+                if DialogState.new-folder-open { DialogState.new-folder-open = false; return accept; }
+                if DialogState.new-file-open { DialogState.new-file-open = false; return accept; }
+                if DialogState.bulk-open-confirm-open { DialogState.bulk-open-confirm-open = false; return accept; }
+                if DialogState.empty-trash-confirm-open { DialogState.empty-trash-confirm-open = false; return accept; }
+                if DialogState.remote-mount-open {
+                    DialogState.remote-mount-open = false;
+                    Callabler.remote-mount-cancelled();
+                    return accept;
+                }
+                if DialogState.nav-error-open { DialogState.nav-error-open = false; return accept; }
+                if DialogState.extract-password-open {
+                    DialogState.extract-password-open = false;
+                    Callabler.extract-cancelled();
+                    return accept;
+                }
+                if DialogState.bulk-rename-open { DialogState.bulk-rename-open = false; return accept; }
+                if SearchState.active { Callabler.close-search(); return accept; }
+                Callabler.select-none();
+                return accept;
+            }
+            if event.text == Key.F5 {
+                Callabler.refresh();
+                return accept;
+            }
+            if event.text == Key.F3 {
+                Callabler.toggle-split();
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                Callabler.nav-selection(NavKey.up, event.modifiers.shift);
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                Callabler.nav-selection(NavKey.down, event.modifiers.shift);
+                return accept;
+            }
+            if event.text == Key.PageUp {
+                Callabler.nav-selection(NavKey.page-up, event.modifiers.shift);
+                return accept;
+            }
+            if event.text == Key.PageDown {
+                Callabler.nav-selection(NavKey.page-down, event.modifiers.shift);
+                return accept;
+            }
+            if event.text == Key.Home {
+                Callabler.nav-selection(NavKey.home, event.modifiers.shift);
+                return accept;
+            }
+            if event.text == Key.End {
+                Callabler.nav-selection(NavKey.end, event.modifiers.shift);
+                return accept;
+            }
+            if event.text == "h" && event.modifiers.control {
+                Callabler.toggle-hidden();
+                return accept;
+            }
+            if event.text == "l" && event.modifiers.alt {
+                Callabler.toggle-auto-refresh();
+                return accept;
+            }
+            if event.text == Key.Backspace {
+                Callabler.navigate-up();
+                return accept;
+            }
+            // Ctrl+Z → undo, Ctrl+Y or Ctrl+Shift+Z → redo.
+            if event.text == "z" && event.modifiers.control && !event.modifiers.shift {
+                Callabler.undo();
+                return accept;
+            }
+            if (event.text == "y" && event.modifiers.control)
+                || (event.text == "z" && event.modifiers.control && event.modifiers.shift) {
+                Callabler.redo();
+                return accept;
+            }
+            if event.text == "x" && event.modifiers.control {
+                Callabler.clipboard-cut();
+                return accept;
+            }
+            // Ctrl+Shift+C → copy path(s) as text. Check before plain Ctrl+C.
+            if event.modifiers.control && event.modifiers.shift
+               && (event.text == "c" || event.text == "C") {
+                Callabler.copy-path();
+                return accept;
+            }
+            if event.text == "c" && event.modifiers.control {
+                Callabler.clipboard-copy();
+                return accept;
+            }
+            if event.text == "v" && event.modifiers.control {
+                Callabler.clipboard-paste();
+                return accept;
+            }
+            if event.text == Key.Delete {
+                // In the trash, items have nowhere left to be trashed to, so Delete
+                // always means permanent removal (with confirmation). Trashing them
+                // again would just move them back into the trash → an endless loop.
+                if event.modifiers.shift || AppState.in-trash {
+                    Callabler.request-delete-permanently();
+                } else {
+                    Callabler.move-to-trash();
+                }
+                return accept;
+            }
+            if event.text == Key.F2 {
+                Callabler.request-rename();
+                return accept;
+            }
+            if event.text == Key.Return && event.modifiers.alt {
+                Callabler.request-properties();
+                return accept;
+            }
+            if event.text == Key.Return && !event.modifiers.alt && !event.modifiers.shift && !event.modifiers.control {
+                Callabler.activate-selection();
+                return accept;
+            }
+            if event.text == "n" && event.modifiers.control {
+                Callabler.request-new-folder();
+                return accept;
+            }
+            // Ctrl+T → new tab. Ctrl+W → close current. Ctrl+PageDown/Up cycles.
+            if event.text == "t" && event.modifiers.control && !event.modifiers.shift {
+                Callabler.new-tab();
+                return accept;
+            }
+            if event.text == "w" && event.modifiers.control {
+                Callabler.close-tab(-1);  // -1 = current
+                return accept;
+            }
+            if event.text == "1" && event.modifiers.control {
+                Settings.view-mode = AppViewMode.list;
+                return accept;
+            }
+            if event.text == "2" && event.modifiers.control {
+                Settings.view-mode = AppViewMode.gallery;
+                return accept;
+            }
+            // Ctrl+= / Ctrl++ → bigger items, Ctrl+- → smaller (works in both views).
+            if event.modifiers.control && (event.text == "=" || event.text == "+") {
+                Callabler.cycle-item-size(1);
+                return accept;
+            }
+            if event.modifiers.control && event.text == "-" {
+                Callabler.cycle-item-size(-1);
+                return accept;
+            }
+            reject
+        }
+
+        key-released(event) => {
+            if AppState.ctrl-held != event.modifiers.control {
+                Callabler.debug-ctrl-change(event.modifiers.control, "key-released");
+            }
+            AppState.ctrl-held = event.modifiers.control;
+            reject
+        }
+
+        VerticalLayout {
+            // Loud, unmistakable strip across the top so the user can't
+            // confuse a root-mode window with a regular one.
+            if AppState.is-root: Rectangle {
+                height: 24px;
+                background: #c0392b;
+                HorizontalLayout {
+                    alignment: center;
+                    Text {
+                        text: Translations.banner-root-warning;
+                        color: white;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        font-weight: 700;
+                        letter-spacing: 0.5px;
+                    }
+                }
+            }
+            Toolbar {}
+
+            if SearchState.active: SearchBar {}
+
+            HorizontalLayout {
+                vertical-stretch: 1;
+
+                PlacesSidebar {
+                    width: Settings.sidebar-width;
+                    items: root.places;
+                }
+
+                pane-row := Rectangle {
+                    horizontal-stretch: 1;
+                    property <length> total-w: self.width - 8px;
+                    property <length> left-w: root.split-active ? (total-w * Settings.split-ratio) : total-w;
+                    property <length> right-w: root.split-active ? (total-w - left-w - 6px) : 0px;
+
+                    // Physical LEFT pane.
+                    PaneArea {
+                        x: 4px;
+                        y: 4px;
+                        width: pane-row.left-w;
+                        height: parent.height - 8px;
+                        tabs: root.active-is-right ? root.inactive-tabs : root.tabs;
+                        is-right: false;
+                        rows: root.active-is-right ? root.inactive-rows : root.rows;
+                        search-rows: root.search-rows;
+                        showing-search: SearchState.active && !root.search-on-right;
+                        is-active: !root.active-is-right;
+                        show-path-label: root.split-active;
+                        path-label: root.active-is-right ? root.inactive-path : AppState.current-path;
+                        has-selection: root.selected-count > 0;
+                        single-selection: root.selected-count == 1;
+                        selection-is-dir: root.selection-is-dir;
+                        clipboard-has-items: root.clipboard-has-items;
+                        selection-in-trash: root.selection-in-trash;
+                        in-trash: root.active-is-right ? root.inactive-in-trash : AppState.in-trash;
+                    }
+
+                    if root.split-active: Rectangle {
+                        x: 4px + pane-row.left-w + 1px;
+                        y: 4px;
+                        width: 4px;
+                        height: parent.height - 8px;
+                        background: handle-ta.has-hover || handle-ta.pressed
+                            ? ColorPalette.accent
+                            : ColorPalette.border-subtle;
+                        animate background { duration: 100ms; }
+                        border-radius: 2px;
+
+                        handle-ta := TouchArea {
+                            width: 12px;
+                            x: -4px;
+                            mouse-cursor: MouseCursor.col-resize;
+                            moved => {
+                                if self.pressed && pane-row.total-w > 0 {
+                                    Settings.split-ratio = max(0.15, min(0.85,
+                                        Settings.split-ratio + (self.mouse-x - self.pressed-x) / pane-row.total-w
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    if root.split-active: PaneArea {
+                        x: 4px + pane-row.left-w + 6px;
+                        y: 4px;
+                        width: pane-row.right-w;
+                        height: parent.height - 8px;
+                        tabs: root.active-is-right ? root.tabs : root.inactive-tabs;
+                        is-right: true;
+                        rows: root.active-is-right ? root.rows : root.inactive-rows;
+                        search-rows: root.search-rows;
+                        showing-search: SearchState.active && root.search-on-right;
+                        is-active: root.active-is-right;
+                        show-path-label: true;
+                        path-label: root.active-is-right ? AppState.current-path : root.inactive-path;
+                        has-selection: root.selected-count > 0;
+                        single-selection: root.selected-count == 1;
+                        selection-is-dir: root.selection-is-dir;
+                        clipboard-has-items: root.clipboard-has-items;
+                        selection-in-trash: root.selection-in-trash;
+                        in-trash: root.active-is-right ? AppState.in-trash : root.inactive-in-trash;
+                    }
+                }
+            }
+
+            StatusBar {
+                item-count: root.rows.length;
+                selected-count: root.selected-count;
+            }
+        }
+
+        if DialogState.delete-confirm-open: DeleteConfirmDialog { width: 100%; height: 100%; }
+        if DialogState.rename-open: RenameDialog { width: 100%; height: 100%; }
+        if DialogState.new-folder-open: NewFolderDialog { width: 100%; height: 100%; }
+        if DialogState.new-file-open: NewFileDialog { width: 100%; height: 100%; }
+        if DialogState.bulk-open-confirm-open: BulkOpenConfirmDialog { width: 100%; height: 100%; }
+        if DialogState.empty-trash-confirm-open: EmptyTrashConfirmDialog { width: 100%; height: 100%; }
+        if DialogState.remote-mount-open: RemoteMountDialog { width: 100%; height: 100%; }
+        if DialogState.nav-error-open: NavErrorDialog { width: 100%; height: 100%; }
+        if DialogState.extract-password-open: ExtractPasswordDialog { width: 100%; height: 100%; }
+        if DialogState.open-with-open: OpenWithDialog {
+            width: 100%; height: 100%;
+            apps: root.open-with-apps;
+        }
+        if DialogState.compress-open: CompressDialog { width: 100%; height: 100%; }
+        if DialogState.bulk-rename-open: BulkRenameDialog {
+            width: 100%; height: 100%;
+            rows: root.bulk-rename-rows;
+        }
+        if DialogState.properties-open: PropertiesDialog {
+            width: 100%; height: 100%;
+            data: root.properties;
+            media-rows: root.properties-media-rows;
+        }
+        if root.progress.visible: ProgressDialog {
+            width: 100%; height: 100%;
+            data: root.progress;
+        }
+        // Sits above the progress dialog: a transfer pauses on this prompt.
+        if DialogState.conflict-open: ConflictDialog { width: 100%; height: 100%; }
+
+        // Drag ghost: a small floating chip that trails the cursor while
+        // dragging. No TouchArea, so it never intercepts pointer events and
+        // never affects which row computes itself as the drop target.
+        if DragState.active: Rectangle {
+            x: DragState.cursor-x + 12px;
+            y: DragState.cursor-y + 10px;
+            width: 200px;
+            height: 30px;
+            z: 9999;
+            background: ColorPalette.bg-panel;
+            border-color: ColorPalette.accent;
+            border-width: 1px;
+            border-radius: 6px;
+            opacity: 0.93;
+            drop-shadow-blur: 10px;
+            drop-shadow-color: #00000055;
+
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 10px;
+                spacing: 6px;
+                alignment: start;
+                Icon {
+                    width: 18px; height: 18px; size: 18px;
+                    name: DragState.icon;
+                    tint: ColorPalette.icon-tint;
+                }
+                Text {
+                    text: DragState.label;
+                    color: ColorPalette.text-primary;
+                    vertical-alignment: center;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+            }
+
+            // Count badge for multi-item drags.
+            if DragState.count > 1: Rectangle {
+                x: parent.width - self.width - 4px;
+                y: -6px;
+                width: 18px; height: 18px;
+                border-radius: 9px;
+                background: ColorPalette.accent;
+                Text {
+                    text: DragState.count;
+                    color: ColorPalette.text-on-selected;
+                    font-size: 10px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

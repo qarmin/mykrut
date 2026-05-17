@@ -1,0 +1,139 @@
+// Right-click menu when no items are under the pointer (empty area in grid/list).
+// Operates on the *current directory*, not on a selection.
+
+import { ColorPalette, Translations, Callabler, AppState } from "../globals.slint";
+import { Icon } from "../icons.slint";
+
+component MenuItem inherits Rectangle {
+    in property <string> icon-name;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 28px;
+    background: ta.has-hover && enabled ? ColorPalette.bg-row-hover : transparent;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 12px;
+        spacing: 8px;
+
+        Icon {
+            y: (parent.height - self.height) / 2;
+            name: icon-name;
+            size: 16px;
+            tint: !enabled ? ColorPalette.text-secondary : ColorPalette.icon-tint;
+        }
+
+        Text {
+            text: label;
+            color: !enabled ? ColorPalette.text-secondary : ColorPalette.text-primary;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            font-size: 12px;
+        }
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: enabled ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => { if root.enabled { root.clicked(); } }
+    }
+}
+
+component Divider inherits Rectangle {
+    height: 5px;
+    Rectangle {
+        x: 6px; y: (parent.height - 1px) / 2;
+        width: parent.width - 12px; height: 1px;
+        background: ColorPalette.border-subtle;
+    }
+}
+
+export component FolderContextMenu inherits Rectangle {
+    in property <bool> clipboard-has-items;
+    in-out property <length> pop-x;
+    in-out property <length> pop-y;
+
+    public function open() { popup.show(); }
+
+    popup := PopupWindow {
+        x: root.pop-x;
+        y: root.pop-y;
+        width: 230px;
+        height: 330px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            background: ColorPalette.bg-panel;
+            border-color: ColorPalette.border-subtle;
+            border-width: 1px;
+            border-radius: 8px;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000060;
+            drop-shadow-offset-y: 4px;
+
+            VerticalLayout {
+                padding: 4px;
+                spacing: 0px;
+
+                if AppState.in-trash: MenuItem {
+                    icon-name: "delete";
+                    label: Translations.menu-empty-trash;
+                    clicked => { Callabler.empty-trash(); popup.close(); }
+                }
+                if AppState.in-trash: Divider {}
+
+                MenuItem {
+                    icon-name: "folder";
+                    label: Translations.menu-new-folder;
+                    clicked => { Callabler.request-new-folder(); popup.close(); }
+                }
+                MenuItem {
+                    icon-name: "file-generic";
+                    label: Translations.menu-new-file;
+                    clicked => { Callabler.create-empty-file(); popup.close(); }
+                }
+                Divider {}
+                MenuItem {
+                    icon-name: "paste";
+                    label: Translations.menu-paste-here;
+                    enabled: clipboard-has-items;
+                    clicked => { Callabler.clipboard-paste(); popup.close(); }
+                }
+                Divider {}
+                MenuItem {
+                    icon-name: "open";
+                    label: Translations.menu-open-terminal;
+                    // Empty path → handler uses the current dir.
+                    clicked => { Callabler.open-in-terminal(""); popup.close(); }
+                }
+                MenuItem {
+                    icon-name: "settings";
+                    label: Translations.menu-open-as-root;
+                    enabled: !AppState.is-root;
+                    clicked => { Callabler.open-as-root(""); popup.close(); }
+                }
+                Divider {}
+                // Bookmark the folder currently being viewed. Toggles label +
+                // action based on whether it's already a bookmark; disabled when
+                // the current folder is already in Computer/Places (or isn't a
+                // bookmarkable local dir, e.g. Trash).
+                if !AppState.in-trash: MenuItem {
+                    icon-name: AppState.current-folder-is-bookmarked ? "delete" : "folder";
+                    label: AppState.current-folder-is-bookmarked
+                        ? Translations.menu-remove-bookmark
+                        : Translations.menu-add-bookmark;
+                    enabled: AppState.current-folder-is-bookmarked || AppState.current-folder-can-bookmark;
+                    clicked => { Callabler.toggle-bookmark-of-current(); popup.close(); }
+                }
+                if !AppState.in-trash: Divider {}
+                MenuItem {
+                    icon-name: "properties";
+                    label: Translations.menu-folder-properties;
+                    clicked => { Callabler.request-folder-properties(); popup.close(); }
+                }
+            }
+        }
+    }
+}

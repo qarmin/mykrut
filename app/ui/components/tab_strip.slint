@@ -1,0 +1,198 @@
+// Tab strip: one row of clickable tab pills + a trailing "+" button.
+// Hidden when there is only one tab to avoid wasted vertical space.
+
+import { ColorPalette, Callabler, DragState } from "../globals.slint";
+import { TabInfo } from "../globals.slint";
+import { Icon } from "../icons.slint";
+
+component TabPill inherits Rectangle {
+    in property <TabInfo> data;
+    in property <int> idx;
+    // Physical side of the owning pane (false = left). Routed to the pane-aware
+    // tab callbacks so the op targets this pill's pane, not whichever pane
+    // currently has focus.
+    in property <bool> is-right;
+    // The pill's window rect, supplied by the strip as PLAIN lengths. A repeated
+    // element must NOT read any of its own geometry (`self.x/y/width/height` or
+    // `absolute-position`) inside a binding: the drop-target change-tracker is
+    // evaluated while this strip's HorizontalLayout is being laid out, and
+    // reading a geometry property that is mid-update there triggers Slint's
+    // "Recursion detected". So the strip computes win-x from the (fixed) pill
+    // width + index, entirely from plain values.
+    in property <length> win-x;
+    in property <length> win-y;
+    in property <length> pill-w;
+
+    // Drop target while dragging files onto this tab (move into its folder).
+    property <bool> drop-target:
+        DragState.active
+        && data.path != ""
+        && DragState.cursor-x >= win-x
+        && DragState.cursor-x < win-x + pill-w
+        && DragState.cursor-y >= win-y
+        && DragState.cursor-y < win-y + 32px;
+
+    changed drop-target => {
+        if (root.drop-target) {
+            DragState.has-target = true;
+            DragState.target-path = data.path;
+            DragState.target-row = -1;
+        } else if (DragState.has-target && DragState.target-path == data.path) {
+            DragState.has-target = false;
+            DragState.target-path = "";
+        }
+    }
+
+    height: 30px;
+    width: pill-w;
+    background:
+          root.drop-target ? ColorPalette.bg-row-selected
+        : data.is-active   ? ColorPalette.bg-panel
+        : ta.has-hover     ? ColorPalette.bg-row-hover
+        :                    ColorPalette.bg-sidebar;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-color: (root.drop-target || data.is-active) ? ColorPalette.accent : transparent;
+    border-width: (root.drop-target || data.is-active) ? 2px : 0;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 6px;
+        spacing: 4px;
+        alignment: stretch;
+
+        txt := Text {
+            text: data.title;
+            color: data.is-active ? ColorPalette.text-primary : ColorPalette.text-secondary;
+            font-size: 12px;
+            font-weight: data.is-active ? 600 : 400;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+
+        // Close button — only visible on hover or active tab.
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 9px;
+            background: close-ta.has-hover
+                ? ColorPalette.bg-row-selected-hover
+                : transparent;
+            visible: data.is-active || ta.has-hover;
+
+            Text {
+                text: "×";
+                color: ColorPalette.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: 14px;
+                font-weight: 700;
+            }
+
+            close-ta := TouchArea {
+                clicked => { Callabler.tab-close-in(is-right, idx); }
+            }
+        }
+    }
+
+    ta := TouchArea {
+        z: -1;
+        mouse-cursor: MouseCursor.pointer;
+        // Left click selects/focuses; middle click closes (browser convention).
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.middle {
+                Callabler.tab-close-in(is-right, idx);
+            }
+        }
+        clicked => {
+            // Always route through the pane-aware callback: clicking a tab in an
+            // unfocused pane should focus that pane even if it's already its
+            // active tab.
+            Callabler.tab-switch-in(is-right, idx);
+        }
+    }
+}
+
+export component TabStrip inherits Rectangle {
+    in property <[TabInfo]> tabs;
+    // Physical side of this strip's pane (false = left).
+    in property <bool> is-right;
+
+    // Only show the strip once a pane actually has more than one tab, in both
+    // single and split views. A new tab is added with Ctrl+T or the context
+    // menu's "Open in new tab".
+    property <bool> shown: tabs.length > 1;
+    height: shown ? 32px : 0px;
+    visible: shown;
+    background: ColorPalette.bg-sidebar;
+
+    // Fixed pill width so the strip can hand each pill its window-x as a plain
+    // length (origin + index * stride), without any element reading its own
+    // layout geometry. `stride` includes the 1px inter-pill spacing.
+    property <length> pill-w: 150px;
+    property <length> stride: pill-w + 1px;
+
+    // The strip's window origin, mirrored into PLAIN properties. The repeated
+    // pills must never read `absolute-position` (or any of their own geometry)
+    // themselves: their drop-target change-tracker is evaluated while this
+    // strip's HorizontalLayout repeater is being laid out, and any geometry read
+    // there triggers Slint's "Recursion detected". Reading absolute-position
+    // from a `changed` handler on this (stable, non-repeated) strip instead runs
+    // after geometry settles in the change-handler batch, so it is safe; the
+    // pills then consume only plain lengths.
+    property <length> bar-ax: bar.absolute-position.x;
+    property <length> bar-ay: bar.absolute-position.y;
+    property <length> win-base-x;
+    property <length> win-base-y;
+    changed bar-ax => { self.win-base-x = self.bar-ax; }
+    changed bar-ay => { self.win-base-y = self.bar-ay; }
+
+    // Bottom 1-px strip separating tabs from toolbar.
+    Rectangle {
+        x: 0; y: parent.height - 1px;
+        width: parent.width; height: 1px;
+        background: ColorPalette.border-subtle;
+    }
+
+    bar := HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        padding-top: 2px;
+        spacing: 1px;
+        alignment: start;
+
+        for t[i] in tabs: TabPill {
+            data: t;
+            idx: i;
+            is-right: root.is-right;
+            pill-w: root.pill-w;
+            // padding-left (4px) + i * stride, all plain values.
+            win-x: root.win-base-x + 4px + i * root.stride;
+            win-y: root.win-base-y;
+        }
+
+        // Trailing "+" button.
+        Rectangle {
+            width: 28px;
+            height: 28px;
+            y: 2px;
+            border-radius: 6px;
+            background: add-ta.has-hover ? ColorPalette.bg-row-hover : transparent;
+
+            Text {
+                text: "+";
+                color: ColorPalette.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: 18px;
+            }
+
+            add-ta := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { Callabler.tab-new-in(root.is-right); }
+            }
+        }
+    }
+}

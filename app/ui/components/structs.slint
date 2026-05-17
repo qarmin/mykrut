@@ -1,0 +1,95 @@
+// Structs exported back to Rust via include_modules!().
+// Slint `int` is i32 — file size packed as two i32 fields (lo/hi).
+
+export struct BulkRenameRow {
+    original: string,
+    new-name: string,
+    conflict: bool,    // duplicate / invalid / hits another existing file
+}
+
+export struct OpenWithApp {
+    name: string,
+    id: string,           // .desktop file name (passed back on choose)
+    recommended: bool,    // declares the file's MIME type
+    is-default: bool,     // current default for the file's MIME type
+}
+
+export struct PropKv {
+    key: string,
+    value: string,
+}
+
+export struct PropertiesData {
+    name: string,
+    path: string,
+    kind: string,
+    is-dir: bool,
+    size-text: string,           // "12.4 MB (12,983,210 bytes)" or "computing…"
+    file-count-text: string,     // "1,234 files in 56 folders" — empty for non-dirs
+    modified: string,
+    accessed: string,
+    created: string,
+    owner: string,
+    group: string,
+    mode-octal: string,          // e.g. "0755"
+    deep-scan-active: bool,
+    // Editable permission bits (owner/group/other × read/write/execute).
+    can-edit-perms: bool,        // false for multi-selection / non-local
+    perm-or: bool, perm-ow: bool, perm-ox: bool,
+    perm-gr: bool, perm-gw: bool, perm-gx: bool,
+    perm-tr: bool, perm-tw: bool, perm-tx: bool,
+    // Media tab title: "" (no tab), "Image", "Audio", or "Video".
+    media-kind: string,
+}
+
+export struct PlaceItemData {
+    label: string,
+    icon-name: string,
+    path: string,
+    is-section-header: bool,
+    is-bookmark: bool,
+    /// The Trash entry — right-click offers "Empty trash" instead of the
+    /// bookmark-removal menu.
+    is-trash: bool,
+    /// Accepts an internal drag-and-drop (a local folder we can move files into).
+    accepts-drop: bool,
+    /// Render a disk-usage progress bar + free/total caption under the label.
+    /// Filled in for Computer-section mounts; left at defaults for everything
+    /// else so layouts stay compact.
+    has-usage: bool,
+    usage-fraction: float,      // 0.0 .. 1.0 (used / total)
+    usage-text: string,         // e.g. "12.3 GB free of 500 GB"
+}
+
+export struct ProgressData {
+    visible: bool,
+    op: string,           // "Copy", "Move"
+    current: string,      // current file basename
+    files-done: int,
+    files-total: int,
+    percent: float,       // 0.0 .. 1.0
+    bytes-done-lo: int,
+    bytes-done-hi: int,
+    bytes-total-lo: int,
+    bytes-total-hi: int,
+    bytes-text: string,   // pre-formatted "152 KB of 125 MB" (empty = hide)
+    paused: bool,
+}
+
+export struct FileRowData {
+    display-name: string,
+    icon-name: string,
+    is-dir: bool,
+    is-symlink: bool,
+    is-hidden: bool,
+    is-cut: bool,
+    selected: bool,
+    has-thumbnail: bool,
+    thumbnail: image,
+    size-text: string,
+    modified-text: string,
+    kind-text: string,
+    // Packed u64 size: Rust packs as (size as i32, (size >> 32) as i32).
+    size-lo: int,
+    size-hi: int,
+}

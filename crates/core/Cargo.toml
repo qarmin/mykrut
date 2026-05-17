@@ -1,0 +1,30 @@
+[package]
+name = "mykrut-core"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+mime_guess.workspace = true
+dirs.workspace = true
+walkdir.workspace = true
+jwalk.workspace = true
+libc.workspace = true
+trash.workspace = true
+image.workspace = true
+md-5.workspace = true
+hayro.workspace = true
+lofty.workspace = true
+kamadak-exif.workspace = true
+infer.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints]
+workspace = true

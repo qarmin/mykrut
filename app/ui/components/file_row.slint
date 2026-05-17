@@ -1,0 +1,274 @@
+// One row in the list view. Layout uses an explicit `column-sizes` array so
+// columns align perfectly with the header bar. All text cells get `width:
+// column-sizes[i]` and `overflow: elide` so nothing pushes neighbours.
+//
+// Pattern adapted from czkawka/krokiet's SelectableTableView.
+
+import { ColorPalette, Callabler, SelectMode, AppState, DragState, Settings } from "../globals.slint";
+import { Icon } from "../icons.slint";
+import { FileRowData } from "structs.slint";
+
+export component FileRow inherits Rectangle {
+    in property <FileRowData> data;
+    in property <int> row-index;
+    in property <bool> is-active-pane: true;
+    /// [name, size, modified, kind] in px. Driven by the parent FileListView.
+    in property <[length]> column-sizes;
+    in property <length> row-width;
+    in property <length> row-h: 26px;
+    in property <length> icon-size: 18px;
+    in property <length> icon-col-w: 26px;
+    // This row's top-left in WINDOW coordinates, computed by FileListView from
+    // the stable `list-view` element. `absolute-position` is unreliable for
+    // repeater rows inside a ListView (Slint 1.16), so we don't use it.
+    in property <length> win-x;
+    in property <length> win-y;
+
+    callback request-context-menu(length, length);
+
+    // True when a drag is in progress and the cursor (window coords) is over
+    // THIS folder row, so it can light up as a drop target. Works even though
+    // the source row holds the pointer grab and no hover events reach us.
+    property <bool> drop-target:
+        DragState.active
+        && data.is-dir
+        && !data.selected
+        && DragState.cursor-x >= root.win-x
+        && DragState.cursor-x < root.win-x + self.width
+        && DragState.cursor-y >= root.win-y
+        && DragState.cursor-y < root.win-y + self.height;
+
+    changed drop-target => {
+        if (root.drop-target) {
+            DragState.has-target = true;
+            DragState.target-path = "";
+            DragState.target-row = root.row-index;
+            DragState.target-active-pane = root.is-active-pane;
+        } else if (DragState.has-target
+            && DragState.target-row == root.row-index
+            && DragState.target-active-pane == root.is-active-pane) {
+            DragState.has-target = false;
+            DragState.target-row = -1;
+        }
+    }
+
+    // Set on press of an already-selected row: defer collapsing the multi-
+    // selection to a single item until release, so a drag can carry the group.
+    private property <bool> pending-collapse: false;
+
+    height: row-h;
+    width: row-width;
+    background: root.drop-target ? ColorPalette.bg-row-selected : ColorPalette.row-bg(row-index, ta.has-hover, data.selected);
+    border-width: root.drop-target ? 2px : 0px;
+    border-color: ColorPalette.accent;
+    border-radius: root.drop-target ? 4px : 0px;
+    opacity: data.is-cut ? 0.55 : 1.0;
+
+    // Top-right "CUT" badge so cut state stands out beyond the opacity fade.
+    if data.is-cut: Rectangle {
+        x: icon-col-w + 6px; y: max(2px, (row-h - 16px) / 2);
+        width: 28px;
+        height: 16px;
+        background: ColorPalette.accent;
+        border-radius: 3px;
+        z: 2;
+        Text {
+            text: "CUT";
+            color: ColorPalette.text-on-selected;
+            font-size: 9px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 0;
+        alignment: start;
+
+        // Icon cell — separate from text columns so it doesn't push them.
+        Rectangle {
+            width: icon-col-w;
+            if data.has-thumbnail: Rectangle {
+                x: 4px;
+                y: (parent.height - self.height) / 2;
+                width: icon-size; height: icon-size;
+                clip: true;
+                border-radius: 3px;
+                Image {
+                    width: 100%; height: 100%;
+                    source: data.thumbnail;
+                    // Videos carry a baked-in film-strip border on the left/right
+                    // edges; `cover` would crop it off, so show them whole
+                    // (`contain`) like the gallery does. Images still `cover` to
+                    // fill the square cleanly.
+                    image-fit: data.icon-name == "video" ? ImageFit.contain : ImageFit.cover;
+                }
+            }
+            if !data.has-thumbnail: Icon {
+                x: 4px;
+                y: (parent.height - self.height) / 2;
+                width: icon-size; height: icon-size;
+                size: icon-size;
+                // Swap to an "open folder" glyph while the cursor hovers this
+                // folder as a drop target, so the aim is unmistakable.
+                name: root.drop-target ? "folder-open" : data.icon-name;
+                show-symlink-emblem: data.is-symlink;
+                tint: (data.selected || root.drop-target) ? ColorPalette.icon-tint-selected : ColorPalette.icon-tint;
+            }
+        }
+
+        Text {
+            text: data.display-name;
+            color: data.selected ? ColorPalette.text-on-selected : ColorPalette.text-primary;
+            width: column-sizes[0];
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 13px;
+        }
+
+        if Settings.col-size-visible: Text {
+            text: data.size-text;
+            color: data.selected ? ColorPalette.text-on-selected : ColorPalette.text-secondary;
+            width: column-sizes[1];
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            font-size: 12px;
+        }
+
+        if Settings.col-modified-visible: Rectangle { width: 8px; }   // gap before date
+
+        if Settings.col-modified-visible: Text {
+            text: data.modified-text;
+            color: data.selected ? ColorPalette.text-on-selected : ColorPalette.text-secondary;
+            width: column-sizes[2];
+            vertical-alignment: center;
+            font-size: 12px;
+        }
+
+        if Settings.col-kind-visible: Text {
+            text: data.kind-text;
+            color: data.selected ? ColorPalette.text-on-selected : ColorPalette.text-secondary;
+            width: column-sizes[3];
+            vertical-alignment: center;
+            font-size: 12px;
+            overflow: elide;
+        }
+    }
+
+    // Off-layout probe used only to measure the full name's natural width, so we
+    // can tell whether the name column is eliding it.
+    name-measure := Text {
+        x: 0; y: 0;
+        text: data.display-name;
+        font-size: 13px;
+        visible: false;
+    }
+
+    // Hover-expand (Nemo-style): when the name doesn't fit its column, hovering
+    // the row reveals the full name in an overlay sized to fit. It draws over the
+    // other cells and vanishes as soon as the cursor leaves the row. No TouchArea
+    // here, so clicks/hover still go to `ta` below.
+    if ta.has-hover && name-measure.preferred-width > column-sizes[0]: Rectangle {
+        x: icon-col-w + 6px;
+        y: 0;
+        width: min(name-measure.preferred-width + 14px, root.row-width - icon-col-w - 12px);
+        height: row-h;
+        z: 10;
+        background: ColorPalette.row-bg(row-index, true, data.selected);
+        border-radius: 3px;
+        border-width: 1px;
+        border-color: ColorPalette.border-subtle;
+        Text {
+            x: 6px;
+            width: parent.width - 12px;
+            text: data.display-name;
+            color: data.selected ? ColorPalette.text-on-selected : ColorPalette.text-primary;
+            vertical-alignment: center;
+            font-size: 13px;
+            overflow: elide;
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+
+        // Ctrl+wheel cycles item-size. Without this the ListView's own scroll
+        // handler eats the event before the FileListView background sees it.
+        // Reads AppState.ctrl-held instead of event.modifiers.control because
+        // Slint 1.16's winit backend doesn't include the live modifier in
+        // wheel events (issue #6263).
+        scroll-event(event) => {
+            Callabler.debug-wheel("file_row", event.delta-y / 1px, AppState.ctrl-held);
+            if AppState.ctrl-held {
+                if event.delta-y > 0 { Callabler.cycle-item-size(1); }
+                else if event.delta-y < 0 { Callabler.cycle-item-size(-1); }
+                return accept;
+            }
+            reject
+        }
+
+        // Begin a drag once the pointer travels past a small threshold, then
+        // keep feeding the live cursor position (window coords) into DragState.
+        // The press grabs the pointer, so these `moved` events keep arriving
+        // even while the cursor is over other rows or the other pane.
+        moved => {
+            if (!self.pressed) {
+                return;
+            }
+            if (!DragState.active
+                && ((self.mouse-x - self.pressed-x > 6px) || (self.pressed-x - self.mouse-x > 6px)
+                    || (self.mouse-y - self.pressed-y > 6px) || (self.pressed-y - self.mouse-y > 6px))) {
+                Callabler.start-drag(row-index);
+            }
+            if (DragState.active) {
+                // ta fills the row, so mouse-x/y are relative to the row's
+                // top-left, which is win-x/win-y in window coordinates.
+                DragState.cursor-x = root.win-x + self.mouse-x;
+                DragState.cursor-y = root.win-y + self.mouse-y;
+            }
+        }
+
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.up {
+                if DragState.active {
+                    Callabler.drop-dragged(event.modifiers.control);
+                } else if root.pending-collapse {
+                    Callabler.select-row(row-index, SelectMode.single);
+                }
+                root.pending-collapse = false;
+                // Reclaim keyboard focus on release (NOT on press — doing it on
+                // press cancels the pointer grab and breaks drag-and-drop).
+                AppState.focus-nonce += 1;
+                return;
+            }
+            if event.kind != PointerEventKind.down {
+                return;
+            }
+            if !is-active-pane {
+                Callabler.swap-active-pane();
+            }
+            if event.button == PointerEventButton.left {
+                if event.modifiers.shift {
+                    Callabler.select-row(row-index, SelectMode.range);
+                } else if event.modifiers.control {
+                    Callabler.select-row(row-index, SelectMode.toggle);
+                } else if data.selected && is-active-pane {
+                    // Keep the current (possibly multi-) selection so a drag can
+                    // carry it; a plain click without a drag collapses on release.
+                    root.pending-collapse = true;
+                } else {
+                    Callabler.select-row(row-index, SelectMode.single);
+                }
+            } else if event.button == PointerEventButton.right {
+                if !data.selected {
+                    Callabler.select-row(row-index, SelectMode.single);
+                }
+                root.request-context-menu(self.mouse-x, self.mouse-y);
+            }
+        }
+        double-clicked => { Callabler.row-activated(row-index); }
+    }
+}

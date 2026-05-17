@@ -1,0 +1,32 @@
+import { ColorPalette } from "../globals.slint";
+import { Icon } from "../icons.slint";
+
+export component IconButton inherits Rectangle {
+    in property <string> icon-name;
+    in property <string> tooltip;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background:
+          !enabled                  ? transparent
+        : ta.has-hover && ta.pressed ? ColorPalette.bg-row-selected
+        : ta.has-hover               ? ColorPalette.bg-row-hover
+        :                              transparent;
+
+    icon := Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        name: root.icon-name;
+        size: 18px;
+        tint: root.enabled ? ColorPalette.icon-tint : ColorPalette.text-secondary;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => { root.clicked(); }
+    }
+}

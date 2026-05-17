@@ -1,0 +1,73 @@
+import { ColorPalette, Translations, AppState, Callabler } from "../globals.slint";
+
+component TextButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 26px;
+    width: label.preferred-width + 24px;
+    border-radius: 5px;
+    border-width: 1px;
+    border-color: ColorPalette.border-subtle;
+    background:
+          !enabled                     ? transparent
+        : ta.has-hover && ta.pressed   ? ColorPalette.bg-row-selected
+        : ta.has-hover                 ? ColorPalette.bg-row-hover
+        :                                ColorPalette.bg-sidebar;
+
+    label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        color: root.enabled ? ColorPalette.text-primary : ColorPalette.text-secondary;
+        font-size: 12px;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component TrashBar inherits Rectangle {
+    height: 38px;
+    background: ColorPalette.bg-panel;
+
+    // Bottom border strip.
+    Rectangle {
+        x: 0;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: ColorPalette.border-subtle;
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+
+        Text {
+            text: Translations.places-trash;
+            color: ColorPalette.text-secondary;
+            font-size: 13px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        TextButton {
+            y: (parent.height - self.height) / 2;
+            text: Translations.bar-restore-selected;
+            enabled: AppState.selected-count > 0;
+            clicked => { Callabler.restore-from-trash(); }
+        }
+
+        TextButton {
+            y: (parent.height - self.height) / 2;
+            text: Translations.bar-empty-trash;
+            clicked => { Callabler.empty-trash(); }
+        }
+    }
+}

@@ -1,0 +1,235 @@
+// Single tile in the grid view. Icon-or-thumbnail centered, name below.
+// Tile + icon dimensions come from FileGridView based on selected size.
+
+import { ColorPalette, Callabler, SelectMode, AppState, DragState } from "../globals.slint";
+import { Icon } from "../icons.slint";
+import { FileRowData } from "structs.slint";
+
+export component FileTile inherits Rectangle {
+    in property <FileRowData> data;
+    in property <int> row-index;
+    in property <bool> is-active-pane: true;
+    in property <length> tile-width: 120px;
+    in property <length> tile-height: 140px;
+    in property <length> icon-size: 80px;
+
+    callback request-context-menu(length, length);
+    /// Bubbles a wheel direction (+1 = scroll up, -1 = scroll down) up to the
+    /// parent so it can apply a tile-height-scaled scroll step. Fixes the
+    /// "scroll barely moves" feel at the largest gallery sizes.
+    callback request-wheel-scroll(int);
+    /// Reports whether this tile is hovered while its name is being elided, so
+    /// the grid can pop the full name over the neighbouring tiles (this tile
+    /// clips, so it can't show it itself).
+    callback hover-name(bool);
+
+    // This tile's top-left in WINDOW coordinates, computed by FileGridView from
+    // the stable `flick` element (a repeater tile's own absolute-position is
+    // unreliable inside a ScrollView in Slint 1.16).
+    in property <length> win-x;
+    in property <length> win-y;
+
+    // True while a drag is in progress and the cursor (window coords) is over
+    // THIS folder tile (see FileRow for the rationale).
+    property <bool> drop-target:
+        DragState.active
+        && data.is-dir
+        && !data.selected
+        && DragState.cursor-x >= root.win-x
+        && DragState.cursor-x < root.win-x + self.width
+        && DragState.cursor-y >= root.win-y
+        && DragState.cursor-y < root.win-y + self.height;
+
+    changed drop-target => {
+        if (root.drop-target) {
+            DragState.has-target = true;
+            DragState.target-path = "";
+            DragState.target-row = root.row-index;
+            DragState.target-active-pane = root.is-active-pane;
+        } else if (DragState.has-target
+            && DragState.target-row == root.row-index
+            && DragState.target-active-pane == root.is-active-pane) {
+            DragState.has-target = false;
+            DragState.target-row = -1;
+        }
+    }
+
+    private property <bool> pending-collapse: false;
+
+    // True when the name needs more than the ~2-line well, i.e. it's elided. The
+    // probe measures the full name's single-line width; >2 text-columns ≈ >2 wrapped lines.
+    property <bool> name-truncated: name-measure.preferred-width > 2 * (tile-width - 12px);
+    property <bool> show-name-popup: ta.has-hover && root.name-truncated;
+    changed show-name-popup => { root.hover-name(root.show-name-popup); }
+
+    width: tile-width;
+    height: tile-height;
+    border-radius: 8px;
+    border-width: root.drop-target ? 2px : 0px;
+    border-color: ColorPalette.accent;
+    // Safety net so very long names with no word breaks can't ever paint over
+    // adjacent tiles, no matter what wrap/elide does.
+    clip: true;
+    background:
+          root.drop-target ? ColorPalette.bg-row-selected
+        : data.selected ? ColorPalette.bg-row-selected
+        : ta.has-hover ? ColorPalette.bg-row-hover
+        : transparent;
+    opacity: data.is-cut ? 0.55 : 1.0;
+
+    // High-z badge on cut items so the state is unmistakable even at small sizes.
+    if data.is-cut: Rectangle {
+        x: 4px; y: 4px;
+        width: 32px;
+        height: 14px;
+        background: ColorPalette.accent;
+        border-radius: 3px;
+        z: 2;
+        Text {
+            text: "CUT";
+            color: ColorPalette.text-on-selected;
+            font-size: 9px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+        alignment: start;
+
+        // Wrap the icon well in a HorizontalLayout with `alignment: center`
+        // so it sits centred regardless of tile width.
+        HorizontalLayout {
+            height: icon-size;
+            alignment: center;
+
+            Rectangle {
+                width: icon-size;
+                height: icon-size;
+                clip: true;
+                border-radius: 6px;
+
+                if data.has-thumbnail: Image {
+                    width: 100%;
+                    height: 100%;
+                    source: data.thumbnail;
+                    image-fit: contain;
+                }
+                if !data.has-thumbnail: Icon {
+                    width: parent.width;
+                    height: parent.height;
+                    name: root.drop-target ? "folder-open" : data.icon-name;
+                    size: icon-size * 0.85;
+                    tint: (data.selected || root.drop-target) ? ColorPalette.icon-tint-selected : ColorPalette.icon-tint;
+                    show-symlink-emblem: data.is-symlink;
+                }
+            }
+        }
+
+        // Hard-bounded text well. Without an explicit height the Text would
+        // compute a huge intrinsic min-height for very long names (200 chars
+        // wrap to ~12 lines), the layout would honour it, and the text would
+        // bleed onto neighbouring tiles. Capping the height here forces
+        // `overflow: elide` to actually kick in.
+        Rectangle {
+            vertical-stretch: 1;
+            clip: true;
+            Text {
+                width: 100%;
+                height: 100%;
+                text: data.display-name;
+                color: data.selected ? ColorPalette.text-on-selected : ColorPalette.text-primary;
+                horizontal-alignment: center;
+                // Top-aligned so a label shorter than the well leaves the slack
+                // below it (the well is sized for two lines + margin); a flush
+                // second line was the complaint.
+                vertical-alignment: top;
+                wrap: word-wrap;
+                overflow: elide;
+                font-size: tile-width < 110px ? 10px : 12px;
+            }
+        }
+    }
+
+    // Off-layout probe to measure the full name's natural single-line width.
+    name-measure := Text {
+        x: 0; y: 0;
+        text: data.display-name;
+        font-size: tile-width < 110px ? 10px : 12px;
+        visible: false;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+
+        scroll-event(event) => {
+            Callabler.debug-wheel("file_tile", event.delta-y / 1px, AppState.ctrl-held);
+            if AppState.ctrl-held {
+                if event.delta-y > 0 { Callabler.cycle-item-size(1); }
+                else if event.delta-y < 0 { Callabler.cycle-item-size(-1); }
+                return accept;
+            }
+            if event.delta-y != 0 {
+                root.request-wheel-scroll(event.delta-y > 0 ? 1 : -1);
+                return accept;
+            }
+            reject
+        }
+
+        moved => {
+            if (!self.pressed) {
+                return;
+            }
+            if (!DragState.active
+                && ((self.mouse-x - self.pressed-x > 6px) || (self.pressed-x - self.mouse-x > 6px)
+                    || (self.mouse-y - self.pressed-y > 6px) || (self.pressed-y - self.mouse-y > 6px))) {
+                Callabler.start-drag(row-index);
+            }
+            if (DragState.active) {
+                DragState.cursor-x = root.win-x + self.mouse-x;
+                DragState.cursor-y = root.win-y + self.mouse-y;
+            }
+        }
+
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.up {
+                if DragState.active {
+                    Callabler.drop-dragged(event.modifiers.control);
+                } else if root.pending-collapse {
+                    Callabler.select-row(row-index, SelectMode.single);
+                }
+                root.pending-collapse = false;
+                // Reclaim focus on release, not press (press would cancel the
+                // pointer grab and break drag-and-drop).
+                AppState.focus-nonce += 1;
+                return;
+            }
+            if event.kind != PointerEventKind.down {
+                return;
+            }
+            if !is-active-pane {
+                Callabler.swap-active-pane();
+            }
+            if event.button == PointerEventButton.left {
+                if event.modifiers.shift {
+                    Callabler.select-row(row-index, SelectMode.range);
+                } else if event.modifiers.control {
+                    Callabler.select-row(row-index, SelectMode.toggle);
+                } else if data.selected && is-active-pane {
+                    root.pending-collapse = true;
+                } else {
+                    Callabler.select-row(row-index, SelectMode.single);
+                }
+            } else if event.button == PointerEventButton.right {
+                if !data.selected {
+                    Callabler.select-row(row-index, SelectMode.single);
+                }
+                root.request-context-menu(self.mouse-x, self.mouse-y);
+            }
+        }
+        double-clicked => { Callabler.row-activated(row-index); }
+    }
+}

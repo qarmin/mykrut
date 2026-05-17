@@ -1,0 +1,177 @@
+// Settings popup — opened by gear icon in the toolbar.
+// Centralises the toggles that used to require keyboard shortcuts.
+
+import { ColorPalette, Translations, Settings, Callabler, IconStyle } from "../globals.slint";
+import { Switch, ComboBox } from "std-widgets.slint";
+
+component Row inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in-out property <bool> value;
+    callback toggled();
+
+    height: 48px;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        alignment: stretch;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: label;
+                color: ColorPalette.text-primary;
+                font-size: 13px;
+            }
+            Text {
+                text: hint;
+                color: ColorPalette.text-secondary;
+                font-size: 11px;
+                visible: hint != "";
+            }
+        }
+        sw := Switch {
+            checked <=> root.value;
+            toggled => { root.toggled(); }
+        }
+    }
+}
+
+component ComboRow inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <[string]> model;
+    in-out property <int> current-index;
+    callback selected(int);
+
+    height: 60px;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        alignment: stretch;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.label;
+                color: ColorPalette.text-primary;
+                font-size: 13px;
+            }
+            Text {
+                text: root.hint;
+                color: ColorPalette.text-secondary;
+                font-size: 11px;
+                visible: root.hint != "";
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            ComboBox {
+                width: 130px;
+                model: root.model;
+                current-index <=> root.current-index;
+                selected => { root.selected(self.current-index); }
+            }
+        }
+    }
+}
+
+export component SettingsPopup inherits Rectangle {
+    in-out property <length> pop-x;
+    in-out property <length> pop-y;
+
+    public function open() { popup.show(); }
+
+    popup := PopupWindow {
+        x: root.pop-x;
+        y: root.pop-y;
+        width: 320px;
+        height: 360px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            background: ColorPalette.bg-panel;
+            border-color: ColorPalette.border-subtle;
+            border-width: 1px;
+            border-radius: 10px;
+            drop-shadow-blur: 14px;
+            drop-shadow-color: #00000080;
+            drop-shadow-offset-y: 4px;
+
+            VerticalLayout {
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 0;
+
+                Row {
+                    label: Translations.settings-dark-theme;
+                    hint: Translations.settings-dark-hint;
+                    value <=> Settings.dark-theme;
+                }
+                Row {
+                    label: Translations.settings-show-hidden;
+                    hint: Translations.settings-hidden-hint;
+                    value <=> Settings.show-hidden;
+                    toggled => { Callabler.toggle-hidden-noop(); }
+                }
+                Row {
+                    label: Translations.settings-auto-refresh;
+                    hint: Translations.settings-watcher-hint;
+                    value <=> Settings.auto-refresh;
+                    toggled => { Callabler.toggle-watcher-noop(); }
+                }
+
+                ComboRow {
+                    label: Translations.settings-thumb-size;
+                    hint: Translations.settings-thumb-hint;
+                    model: ["Normal (128)", "Large (256)", "X-Large (512)", "XX-Large (1024)"];
+                    current-index <=> Settings.thumb-size;
+                    selected(idx) => { Callabler.thumb-size-changed(idx); }
+                }
+
+                ComboRow {
+                    label: Translations.settings-thumb-mem;
+                    hint: Translations.settings-thumb-mem-hint;
+                    model: ["512 MB", "1 GB", "2 GB", "4 GB", "8 GB", "Unlimited"];
+                    // Map the stored MiB value <-> combobox index. 0 = unlimited.
+                    current-index: Settings.thumb-mem-budget-mb == 512 ? 0
+                        : Settings.thumb-mem-budget-mb == 1024 ? 1
+                        : Settings.thumb-mem-budget-mb == 2048 ? 2
+                        : Settings.thumb-mem-budget-mb == 4096 ? 3
+                        : Settings.thumb-mem-budget-mb == 8192 ? 4
+                        : Settings.thumb-mem-budget-mb == 0 ? 5
+                        : 2;
+                    selected(idx) => {
+                        Settings.thumb-mem-budget-mb = idx == 0 ? 512
+                            : idx == 1 ? 1024
+                            : idx == 2 ? 2048
+                            : idx == 3 ? 4096
+                            : idx == 4 ? 8192
+                            : 0;
+                        Callabler.thumb-mem-budget-changed(Settings.thumb-mem-budget-mb);
+                    }
+                }
+
+                ComboRow {
+                    label: Translations.settings-icon-style;
+                    hint: Translations.settings-icon-hint;
+                    model: ["Monochrome", "Colored"];
+                    // ComboBox indexes are ints; map them to the IconStyle enum
+                    // both ways so the stored state stays type-safe.
+                    current-index: Settings.icon-style == IconStyle.color ? 1 : 0;
+                    selected(idx) => {
+                        Settings.icon-style = idx == 1 ? IconStyle.color : IconStyle.mono;
+                    }
+                }
+            }
+        }
+    }
+}

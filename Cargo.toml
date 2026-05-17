@@ -1,0 +1,203 @@
+[workspace]
+members = ["crates/core", "app"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95.0"
+version = "0.1.0"
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+slint = { version = "1.8", default-features = false, features = [
+    "std",
+    "backend-default",
+    "renderer-femtovg",
+    "renderer-software",
+    "compat-1-2",
+] }
+slint-build = "1.8"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "fs",
+    "sync",
+    "macros",
+    "process",
+    "time",
+] }
+notify = "8"
+walkdir = "2"
+jwalk = "0.8"
+dirs = "6"
+mime_guess = "2"
+trash = "5"
+opener = "0.8"
+serde = { version = "1", features = ["derive"] }
+toml = "1.1"
+image = { version = "0.25.7", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif", "tiff"] }
+md-5 = "0.11"
+rayon = "1"
+hayro = "0.7"
+lofty = "0.24"
+kamadak-exif = "0.6"
+infer = "0.19"
+arboard = "3"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+futures-util = { version = "0.3", default-features = false }
+mtp-rs = "0.21"
+libc = "0.2"
+lexical-sort = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# release with debug symbols (use for samply / perf / valgrind)
+[profile.rdebug]
+inherits = "release"
+debug = "full"
+strip = "none"
+debug-assertions = false
+
+# maximum release (shipping). VERY slow to compile (fat LTO + codegen-units = 1).
+# WARNING: panic = "abort" means panics are NOT caught — they abort the whole process,
+# and panic::catch_unwind can't recover from them. Do NOT use this profile when:
+#   - compile times matter (iteration, CI without big caches), or
+#   - the app processes external/untrusted input (parsers, decoders, etc. that may panic) —
+#     a single panic kills the entire application instead of being recoverable.
+[profile.fastest]
+inherits = "release"
+panic = "abort"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
+
+# fast iterative release (local dev, no LTO)
+[profile.fast_release]
+inherits = "release"
+incremental = true
+strip = true
+
+# compile all dependencies at O3 even in debug builds
+[profile.dev.package."*"]
+opt-level = 3
+
+[workspace.lints.clippy]
+enum_variant_names = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+collapsible_else_if = "allow"
+iter_on_single_items = "allow"
+needless_range_loop = "allow"
+
+unreachable = "warn"
+doc_broken_link = "warn"
+ip_constant = "warn"
+unnecessary_semicolon = "warn"
+trivially_copy_pass_by_ref = "warn"
+indexing_slicing = "warn"
+non_std_lazy_statics = "warn"
+undocumented_unsafe_blocks = "warn"
+manual_midpoint = "warn"
+ignore_without_reason = "warn"
+elidable_lifetime_names = "warn"
+allow_attributes = "warn"
+assertions_on_result_states = "warn"
+bool_to_int_with_if = "warn"
+branches_sharing_code = "warn"
+collection_is_never_read = "warn"
+dbg_macro = "warn"
+debug_assert_with_mut_call = "warn"
+empty_enum_variants_with_brackets = "warn"
+enum_glob_use = "warn"
+equatable_if_let = "warn"
+error_impl_error = "warn"
+explicit_into_iter_loop = "warn"
+explicit_iter_loop = "warn"
+expl_impl_clone_on_copy = "warn"
+fallible_impl_from = "warn"
+filter_map_next = "warn"
+flat_map_option = "warn"
+float_cmp = "warn"
+from_iter_instead_of_collect = "warn"
+ignored_unit_patterns = "warn"
+implicit_clone = "warn"
+index_refutable_slice = "warn"
+invalid_upcast_comparisons = "warn"
+iter_filter_is_ok = "warn"
+iter_filter_is_some = "warn"
+iter_on_empty_collections = "warn"
+iter_with_drain = "warn"
+large_stack_arrays = "warn"
+large_types_passed_by_value = "warn"
+literal_string_with_formatting_args = "warn"
+lossy_float_literal = "warn"
+macro_use_imports = "warn"
+manual_assert = "warn"
+manual_instant_elapsed = "warn"
+manual_is_variant_and = "warn"
+manual_let_else = "warn"
+manual_ok_or = "warn"
+map_unwrap_or = "warn"
+match_bool = "warn"
+match_same_arms = "warn"
+match_wildcard_for_single_variants = "warn"
+mutex_atomic = "warn"
+mutex_integer = "warn"
+mut_mut = "warn"
+needless_bitwise_bool = "warn"
+needless_collect = "warn"
+needless_continue = "warn"
+needless_for_each = "warn"
+needless_pass_by_ref_mut = "warn"
+needless_pass_by_value = "warn"
+needless_raw_strings = "warn"
+nonstandard_macro_braces = "warn"
+option_as_ref_cloned = "warn"
+pathbuf_init_then_push = "warn"
+path_buf_push_overwrite = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
+pub_underscore_fields = "warn"
+question_mark = "warn"
+range_minus_one = "warn"
+range_plus_one = "warn"
+redundant_clone = "warn"
+redundant_else = "warn"
+ref_binding_to_reference = "warn"
+ref_option_ref = "warn"
+same_functions_in_if_condition = "warn"
+semicolon_if_nothing_returned = "warn"
+set_contains_or_insert = "warn"
+stable_sort_primitive = "warn"
+string_add_assign = "warn"
+string_slice = "warn"
+suspicious_operation_groupings = "warn"
+suspicious_xor_used_as_pow = "warn"
+todo = "warn"
+trait_duplication_in_bounds = "warn"
+trivial_regex = "warn"
+type_repetition_in_bounds = "warn"
+unimplemented = "warn"
+uninlined_format_args = "warn"
+unnecessary_box_returns = "warn"
+unnecessary_join = "warn"
+unnecessary_wraps = "warn"
+unnested_or_patterns = "warn"
+unused_async = "warn"
+unused_result_ok = "warn"
+unused_rounding = "warn"
+unused_self = "warn"
+unwrap_used = "warn"
+used_underscore_binding = "warn"
+useless_let_if_seq = "warn"
+use_self = "warn"
+verbose_file_reads = "warn"
+wildcard_imports = "warn"

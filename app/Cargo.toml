@@ -1,0 +1,40 @@
+[package]
+name = "mykrut"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mykrut"
+path = "src/main.rs"
+
+[dependencies]
+mykrut-core = { path = "../crates/core" }
+slint.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+notify.workspace = true
+dirs.workspace = true
+opener.workspace = true
+serde.workspace = true
+toml.workspace = true
+rayon.workspace = true
+walkdir.workspace = true
+image.workspace = true
+libc.workspace = true
+mime_guess.workspace = true
+zbus.workspace = true
+futures-util.workspace = true
+mtp-rs.workspace = true
+arboard.workspace = true
+lexical-sort.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
+
+[lints]
+workspace = true

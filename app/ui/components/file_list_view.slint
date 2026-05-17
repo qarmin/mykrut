@@ -1,0 +1,372 @@
+// Resizable-column list view, modeled after czkawka/krokiet's pattern.
+//
+// `column-sizes` is mutable so the user can drag the gripper between two
+// columns to resize them. Header row + data list scroll horizontally in
+// lock-step (`viewport-x <=> list-view.viewport-x`).
+//
+// Each row is exactly `row-width` wide = sum of column-sizes + icon column.
+// All text cells use `width: column-sizes[i]` + `overflow: elide` so longer
+// values never push neighbours out.
+
+import { ColorPalette, Translations, AppState, Callabler, SortKey, SortOrder, Settings, SearchState } from "../globals.slint";
+import { FileRow } from "file_row.slint";
+import { FileRowData } from "structs.slint";
+import { ContextMenu } from "context_menu.slint";
+import { FolderContextMenu } from "folder_context_menu.slint";
+import { ListView, CheckBox, ScrollView } from "std-widgets.slint";
+
+component HeaderCell inherits Rectangle {
+    in property <string> label;
+    in property <length> col-width;
+    in property <int> col-idx;
+    in property <bool> right-aligned: false;
+    /// Which sort key this column drives. Used to display ▲/▼ when active.
+    in property <SortKey> sort-key-this;
+    callback resize(length);
+    callback sort-clicked();
+    callback context-menu();
+
+    property <bool> is-active-sort: Settings.sort-key == sort-key-this;
+
+    width: col-width;
+    height: 100%;
+
+    TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { sort-clicked(); }
+        pointer-event(ev) => {
+            if (ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up) {
+                root.context-menu();
+            }
+        }
+
+        HorizontalLayout {
+            x: 8px;
+            width: parent.width - 16px;
+            height: 100%;
+            alignment: right-aligned ? end : start;
+            spacing: 4px;
+
+            Text {
+                text: label;
+                color: is-active-sort ? ColorPalette.text-primary : ColorPalette.text-secondary;
+                vertical-alignment: center;
+                font-size: 12px;
+                font-weight: 600;
+                overflow: elide;
+                horizontal-stretch: right-aligned ? 0 : 1;
+            }
+
+            if is-active-sort: Text {
+                text: Settings.sort-order == SortOrder.ascending ? "▲" : "▼";
+                color: ColorPalette.accent;
+                vertical-alignment: center;
+                font-size: 9px;
+                width: 10px;
+            }
+        }
+    }
+
+    // Resize gripper at right edge — 1 px visible divider + 8 px hit area.
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        height: parent.height;
+        background: handle-ta.has-hover || handle-ta.pressed
+            ? ColorPalette.accent
+            : ColorPalette.border-subtle;
+        animate background { duration: 100ms; }
+
+        handle-ta := TouchArea {
+            width: 8px;
+            x: -4px;        // expand hit area both sides of the 1 px line
+            mouse-cursor: MouseCursor.col-resize;
+            moved => {
+                if self.pressed {
+                    root.resize(self.mouse-x - self.pressed-x);
+                }
+            }
+        }
+    }
+}
+
+export component FileListView inherits Rectangle {
+    in property <[FileRowData]> rows;
+    in property <bool> has-selection;
+    in property <bool> single-selection;
+    in property <bool> selection-is-dir;
+    in property <bool> clipboard-has-items;
+    in property <bool> selection-in-trash;
+    /// True when this view is displaying the search overlay (vs a folder).
+    /// Changes the empty-state copy (prompt / searching / no results).
+    in property <bool> showing-search;
+    in property <bool> is-active-pane: true;
+    /// Per-row pixel height (driven by Settings.item-size in PaneArea).
+    in property <length> row-h: 26px;
+    /// Icon dimension inside the icon column (square).
+    in property <length> icon-size: 18px;
+
+    /// [name, size, modified, kind] widths.
+    in-out property <[length]> column-sizes: [260px, 88px, 160px, 100px];
+    private property <length> icon-col-w: max(26px, root.icon-size + 8px);
+    out property <length> row-width:
+        icon-col-w + column-sizes[0]
+        + (Settings.col-size-visible ? column-sizes[1] : 0px)
+        + (Settings.col-modified-visible ? 8px + column-sizes[2] : 0px)
+        + (Settings.col-kind-visible ? column-sizes[3] : 0px)
+        + 12px;
+    /// Shared scroll offset: header + list both bind viewport-x to this.
+    private property <length> scroll-x: 0;
+
+    // The list reserves space for its vertical scrollbar when it overflows,
+    // shrinking the rows' usable width; the header has no scrollbar. If the two
+    // used different width bases their horizontal-scroll ranges would desync and
+    // the columns would drift apart when space is tight. So both the header and
+    // the rows derive their width from this single value, which subtracts the
+    // scrollbar gutter exactly when the list is scrolling vertically.
+    private property <length> vbar-w: 14px;
+    private property <bool> v-overflow: rows.length * row-h > root.height - 28px;
+    out property <length> content-width: max(root.width - (v-overflow ? vbar-w : 0px), row-width);
+
+    background: ColorPalette.bg-panel;
+
+    ctx := ContextMenu {
+        has-selection: root.has-selection;
+        single-selection: root.single-selection;
+        selection-is-dir: root.selection-is-dir;
+        clipboard-has-items: root.clipboard-has-items;
+        selection-in-trash: root.selection-in-trash;
+    }
+
+    folder-ctx := FolderContextMenu {
+        clipboard-has-items: root.clipboard-has-items;
+    }
+
+    // Column chooser, opened by right-clicking the header.
+    function open-col-menu() { col-menu.show(); }
+    col-menu := PopupWindow {
+        x: 8px;
+        y: 28px;
+        width: 190px;
+        height: 120px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            background: ColorPalette.bg-panel;
+            border-color: ColorPalette.border-subtle;
+            border-width: 1px;
+            border-radius: 8px;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 10px;
+                spacing: 8px;
+                CheckBox { text: Translations.col-size; checked <=> Settings.col-size-visible; }
+                CheckBox { text: Translations.col-modified; checked <=> Settings.col-modified-visible; }
+                CheckBox { text: Translations.col-kind; checked <=> Settings.col-kind-visible; }
+            }
+        }
+    }
+
+    bg-ta := TouchArea {
+        x: 0; y: 0;
+        width: parent.width;
+        height: parent.height;
+        mouse-cursor: MouseCursor.default;
+
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.up {
+                // Reclaim focus on release so global keys keep working.
+                AppState.focus-nonce += 1;
+                return;
+            }
+            if event.kind != PointerEventKind.down { return; }
+            if !root.is-active-pane {
+                Callabler.swap-active-pane();
+                return;
+            }
+            if event.button == PointerEventButton.left {
+                Callabler.select-none();
+            } else if event.button == PointerEventButton.right {
+                folder-ctx.pop-x = self.mouse-x;
+                folder-ctx.pop-y = self.mouse-y;
+                folder-ctx.open();
+            }
+        }
+
+        scroll-event(event) => {
+            // See file_row.slint — wheel events lack live modifier state in
+            // Slint 1.16, so consult AppState.ctrl-held instead.
+            Callabler.debug-wheel("file_list_view-bg", event.delta-y / 1px, AppState.ctrl-held);
+            if AppState.ctrl-held {
+                if event.delta-y > 0 { Callabler.cycle-item-size(1); }
+                else if event.delta-y < 0 { Callabler.cycle-item-size(-1); }
+                return accept;
+            }
+            reject
+        }
+    }
+
+    VerticalLayout {
+        // Header — scrolls horizontally in lock-step with the list below.
+        // Header scrolls horizontally in lock-step with the list. Its content is
+        // kept at least as wide as the viewport so the ScrollView never centers
+        // it (centering narrower content was what hid the left columns); columns
+        // stay left-anchored. A plain clipping Rectangle can't be used here: it
+        // would propagate `content-width` (which depends on root.width) back up
+        // the layout, producing a width cycle ("Recursion detected").
+        // Header band. A ScrollView here recentred its content when the columns
+        // were wider than the pane, hiding the Name column on the left — while
+        // the rows below (a ListView) stay left-anchored, so the two desynced.
+        // Use a left-anchored clipping band whose column row shares the list's
+        // horizontal scroll offset. Sizing the inner row by `row-width` (which
+        // doesn't depend on `root.width`) keeps the columns aligned with the rows
+        // without the width cycle a `content-width`-sized clip would create.
+        Rectangle {
+            height: 28px;
+            clip: true;
+            background: ColorPalette.bg-sidebar;
+
+            Rectangle {
+                x: 0; y: parent.height - 1px;
+                width: parent.width; height: 1px;
+                background: ColorPalette.border-subtle;
+            }
+
+            header-row := Rectangle {
+                x: root.scroll-x;
+                width: root.row-width;
+                height: 28px;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 0;
+                    alignment: start;
+
+                    Rectangle { width: icon-col-w; }
+                    HeaderCell {
+                        label: Translations.col-name;
+                        col-width: column-sizes[0];
+                        col-idx: 0;
+                        resize(d) => {
+                            column-sizes[0] = max(60px, column-sizes[0] + d);
+                        }
+                        sort-clicked => { Callabler.sort-by(SortKey.name); }
+                        context-menu => { root.open-col-menu(); }
+                        sort-key-this: SortKey.name;
+                    }
+                    if Settings.col-size-visible: HeaderCell {
+                        label: Translations.col-size;
+                        col-width: column-sizes[1];
+                        col-idx: 1;
+                        right-aligned: true;
+                        resize(d) => {
+                            column-sizes[1] = max(60px, column-sizes[1] + d);
+                        }
+                        sort-clicked => { Callabler.sort-by(SortKey.size); }
+                        context-menu => { root.open-col-menu(); }
+                        sort-key-this: SortKey.size;
+                    }
+                    if Settings.col-modified-visible: Rectangle { width: 8px; }
+                    if Settings.col-modified-visible: HeaderCell {
+                        label: Translations.col-modified;
+                        col-width: column-sizes[2];
+                        col-idx: 2;
+                        resize(d) => {
+                            column-sizes[2] = max(80px, column-sizes[2] + d);
+                        }
+                        sort-clicked => { Callabler.sort-by(SortKey.mtime); }
+                        context-menu => { root.open-col-menu(); }
+                        sort-key-this: SortKey.mtime;
+                    }
+                    if Settings.col-kind-visible: HeaderCell {
+                        label: Translations.col-kind;
+                        col-width: column-sizes[3];
+                        col-idx: 3;
+                        resize(d) => {
+                            column-sizes[3] = max(60px, column-sizes[3] + d);
+                        }
+                        sort-clicked => { Callabler.sort-by(SortKey.kind); }
+                        context-menu => { root.open-col-menu(); }
+                        sort-key-this: SortKey.kind;
+                    }
+                }
+
+                // Right-click on the empty area of the header (right of the
+                // columns) also opens the column chooser.
+                TouchArea {
+                    z: -1;
+                    pointer-event(ev) => {
+                        if (ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up) {
+                            root.open-col-menu();
+                        }
+                    }
+                }
+            }
+        }
+
+        if rows.length == 0 && !AppState.loading: Rectangle {
+            Text {
+                text: root.showing-search
+                    ? (SearchState.query == ""
+                        ? Translations.search-prompt
+                        : SearchState.searching
+                            ? Translations.search-searching
+                            : Translations.search-no-results)
+                    : Translations.status-empty;
+                color: ColorPalette.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: 13px;
+                font-italic: true;
+            }
+        }
+
+        if rows.length > 0: list-view := ListView {
+            viewport-x <=> root.scroll-x;
+
+            // Scroll to keyboard-target row whenever Rust bumps the property.
+            private property <int> scroll-target: AppState.scroll-to-row;
+            changed scroll-target => {
+                if self.scroll-target >= 0 {
+                    self.scroll-into-view-y(self.scroll-target * root.row-h);
+                }
+            }
+            function scroll-into-view-y(row-top: length) {
+                let v-top = -self.viewport-y;
+                let v-bot = v-top + self.height;
+                if row-top < v-top {
+                    self.viewport-y = -row-top;
+                } else if row-top + root.row-h > v-bot {
+                    self.viewport-y = -(row-top + root.row-h - self.height);
+                }
+            }
+
+            for r[idx] in rows: FileRow {
+                data: r;
+                row-index: idx;
+                is-active-pane: root.is-active-pane;
+                column-sizes: root.column-sizes;
+                row-width: root.content-width;
+                row-h: root.row-h;
+                icon-size: root.icon-size;
+                icon-col-w: root.icon-col-w;
+                // Reliable window position from the stable list-view element
+                // (repeater rows' own absolute-position is buggy in Slint 1.16).
+                win-x: list-view.absolute-position.x + list-view.viewport-x;
+                win-y: list-view.absolute-position.y + list-view.viewport-y + idx * root.row-h;
+                request-context-menu(mx, my) => {
+                    // `self.absolute-position` on repeater rows is unreliable in
+                    // Slint 1.16; derive position from list-view (a stable named
+                    // element) + idx * row-height + viewport offsets. viewport-x/y
+                    // are negative when scrolled, so ADD them.
+                    ctx.pop-x = mx + list-view.viewport-x;
+                    ctx.pop-y = my + idx * root.row-h
+                        + (list-view.absolute-position.y - root.absolute-position.y)
+                        + list-view.viewport-y;
+                    ctx.open();
+                }
+            }
+        }
+    }
+}

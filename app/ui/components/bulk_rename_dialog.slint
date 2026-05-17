@@ -1,0 +1,178 @@
+// Bulk-rename dialog: pattern input + live preview list with conflict highlight.
+
+import { ColorPalette, Translations, Callabler, DialogState } from "../globals.slint";
+import { BulkRenameRow } from "structs.slint";
+import { Button, LineEdit, ListView } from "std-widgets.slint";
+
+component PreviewRow inherits Rectangle {
+    in property <BulkRenameRow> data;
+    in property <int> row-index;
+
+    height: 26px;
+    background:
+          data.conflict                          ? #c0392b.with-alpha(0.15)
+        : mod(row-index, 2) == 0                 ? ColorPalette.bg-row-even
+        :                                          ColorPalette.bg-row-odd;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        Text {
+            text: data.original;
+            color: ColorPalette.text-secondary;
+            width: parent.width / 2 - 16px;
+            vertical-alignment: center;
+            font-size: 12px;
+            overflow: elide;
+        }
+        Text {
+            text: "→";
+            color: ColorPalette.text-secondary;
+            width: 14px;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: data.new-name;
+            color: data.conflict ? #e74c3c : ColorPalette.text-primary;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            font-size: 12px;
+            font-weight: data.conflict ? 600 : 400;
+            overflow: elide;
+        }
+    }
+}
+
+export component BulkRenameDialog inherits Rectangle {
+    in property <[BulkRenameRow]> rows;
+
+    background: #00000088;
+
+    TouchArea {
+        clicked => { DialogState.bulk-rename-open = false; }
+        scroll-event(event) => { accept }
+    }
+
+    Rectangle {
+        x: (parent.width - 640px) / 2;
+        y: (parent.height - 480px) / 2;
+        width: 640px;
+        height: 480px;
+        background: ColorPalette.bg-panel;
+        border-color: ColorPalette.border-subtle;
+        border-width: 1px;
+        border-radius: 10px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000080;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 10px;
+
+            Text {
+                text: Translations.bulk-rename-title;
+                color: ColorPalette.text-primary;
+                font-size: 15px;
+                font-weight: 700;
+            }
+
+            Text {
+                text: Translations.bulk-rename-label;
+                color: ColorPalette.text-secondary;
+                font-size: 12px;
+            }
+
+            edit := LineEdit {
+                text: DialogState.bulk-rename-pattern;
+                edited(t) => {
+                    DialogState.bulk-rename-pattern = t;
+                    Callabler.bulk-rename-preview(t);
+                }
+                accepted(t) => {
+                    if DialogState.bulk-rename-conflicts == 0 {
+                        DialogState.bulk-rename-open = false;
+                        Callabler.bulk-rename-apply(t);
+                    }
+                }
+            }
+
+            Text {
+                text: Translations.bulk-rename-hint;
+                color: ColorPalette.text-secondary;
+                font-size: 10px;
+                font-italic: true;
+            }
+
+            // Header row.
+            Rectangle {
+                height: 22px;
+                background: ColorPalette.bg-sidebar;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    Text {
+                        text: Translations.bulk-rename-original;
+                        color: ColorPalette.text-secondary;
+                        width: parent.width / 2 - 16px;
+                        vertical-alignment: center;
+                        font-size: 11px;
+                        font-weight: 700;
+                    }
+                    Rectangle { width: 14px; }
+                    Text {
+                        text: Translations.bulk-rename-new;
+                        color: ColorPalette.text-secondary;
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        font-size: 11px;
+                        font-weight: 700;
+                    }
+                }
+            }
+
+            // Preview list.
+            preview := ListView {
+                vertical-stretch: 1;
+                for r[i] in rows: PreviewRow {
+                    data: r;
+                    row-index: i;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+
+                Text {
+                    text: DialogState.bulk-rename-conflicts > 0
+                        ? Translations.bulk-rename-conflicts + " " + DialogState.bulk-rename-conflicts
+                        : "";
+                    color: #e74c3c;
+                    vertical-alignment: center;
+                    font-size: 11px;
+                    horizontal-stretch: 1;
+                }
+
+                Button {
+                    text: Translations.dlg-cancel;
+                    clicked => { DialogState.bulk-rename-open = false; }
+                }
+                Button {
+                    text: Translations.bulk-rename-apply;
+                    primary: true;
+                    enabled: rows.length > 0 && DialogState.bulk-rename-conflicts == 0;
+                    clicked => {
+                        DialogState.bulk-rename-open = false;
+                        Callabler.bulk-rename-apply(DialogState.bulk-rename-pattern);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,112 @@
+// Embedded icon set. All SVGs are compiled into the binary by Slint.
+//
+// CONTENT icons (folders, file types, trash, devices) come in TWO sets,
+// selected by `Settings.icon-style`:
+//   * IconStyle.mono (default): the monochrome line-art, recoloured to the
+//     theme tint via `colorize`.
+//   * IconStyle.color: the flat full-colour SVGs under `assets/icons/color/`,
+//     which carry their own colours and must NOT be recoloured (`colorize`
+//     left transparent).
+//
+// CHROME / ACTION icons (toolbar, context-menu, view toggles) are ALWAYS the
+// monochrome line-art tinted to the theme, regardless of `icon-style`, so the
+// toolbar stays legible and theme-adaptive in light/dark.
+//
+// `name` is the logical icon name returned by `fm_core::icon_for_*`.
+// If the name is unknown we fall back to `file-generic` (a content icon).
+
+import { ColorPalette, Settings, IconStyle } from "globals.slint";
+
+export component Icon inherits Rectangle {
+    in property <string> name;
+    in property <length> size: 20px;
+    in property <color> tint: ColorPalette.icon-tint;
+    in property <bool> show-symlink-emblem: false;
+
+    width: size;
+    height: size;
+
+    // Monochrome chrome/action glyphs that always follow the theme tint.
+    // Everything else (folders, file types, trash, devices, file-generic) is a
+    // content icon that switches between the mono and full-colour sets.
+    pure function themed(n: string) -> bool {
+        return n == "back" || n == "forward" || n == "up" || n == "home"
+            || n == "refresh" || n == "search" || n == "open" || n == "cut"
+            || n == "copy" || n == "paste" || n == "delete" || n == "rename"
+            || n == "properties" || n == "view-list" || n == "view-grid-small"
+            || n == "view-grid-medium" || n == "view-grid-large" || n == "settings";
+    }
+
+    // True when this icon should render its own colours (colour set + content
+    // icon). Chrome icons and the mono set are tinted instead.
+    pure function colored(n: string) -> bool {
+        return !root.themed(n) && Settings.icon-style == IconStyle.color;
+    }
+
+    img := Image {
+        width: 100%;
+        height: 100%;
+        colorize: root.colored(root.name) ? transparent : root.tint;
+        image-fit: contain;
+
+        source:
+            // ---- Content icons: full-colour (style 1) vs mono (style 0) ----
+            // Folders
+              name == "folder"            ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder.svg")            : @image-url("../assets/icons/folder.svg"))
+            : name == "folder-home"       ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-home.svg")       : @image-url("../assets/icons/folder-home.svg"))
+            : name == "folder-documents"  ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-documents.svg")  : @image-url("../assets/icons/folder-documents.svg"))
+            : name == "folder-downloads"  ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-downloads.svg")  : @image-url("../assets/icons/folder-downloads.svg"))
+            : name == "folder-pictures"   ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-pictures.svg")   : @image-url("../assets/icons/folder-pictures.svg"))
+            : name == "folder-music"      ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-music.svg")      : @image-url("../assets/icons/folder-music.svg"))
+            : name == "folder-videos"     ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-videos.svg")     : @image-url("../assets/icons/folder-videos.svg"))
+            : name == "folder-desktop"    ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-desktop.svg")    : @image-url("../assets/icons/folder-desktop.svg"))
+            : name == "folder-public"     ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-public.svg")     : @image-url("../assets/icons/folder-public.svg"))
+            : name == "folder-templates"  ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-templates.svg")  : @image-url("../assets/icons/folder-templates.svg"))
+            : name == "folder-open"       ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/folder-open.svg")       : @image-url("../assets/icons/folder-open.svg"))
+            // File types
+            : name == "text"      ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/text.svg")    : @image-url("../assets/icons/text.svg"))
+            : name == "image"     ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/image.svg")   : @image-url("../assets/icons/image.svg"))
+            : name == "audio"     ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/audio.svg")   : @image-url("../assets/icons/audio.svg"))
+            : name == "video"     ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/video.svg")   : @image-url("../assets/icons/video.svg"))
+            : name == "archive"   ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/archive.svg") : @image-url("../assets/icons/archive.svg"))
+            : name == "pdf"       ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/pdf.svg")     : @image-url("../assets/icons/pdf.svg"))
+            : name == "executable" ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/executable.svg") : @image-url("../assets/icons/executable.svg"))
+            // Trash + removable device (content)
+            : name == "trash"          ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/trash.svg")          : @image-url("../assets/icons/trash.svg"))
+            : name == "disk-removable" ? (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/disk-removable.svg") : @image-url("../assets/icons/disk-removable.svg"))
+            // ---- Chrome / action glyphs: always monochrome (theme-tinted) ----
+            : name == "back"          ? @image-url("../assets/icons/back.svg")
+            : name == "forward"       ? @image-url("../assets/icons/forward.svg")
+            : name == "up"            ? @image-url("../assets/icons/up.svg")
+            : name == "home"          ? @image-url("../assets/icons/home.svg")
+            : name == "refresh"       ? @image-url("../assets/icons/refresh.svg")
+            : name == "search"        ? @image-url("../assets/icons/search.svg")
+            : name == "open"          ? @image-url("../assets/icons/open.svg")
+            : name == "cut"           ? @image-url("../assets/icons/cut.svg")
+            : name == "copy"          ? @image-url("../assets/icons/copy.svg")
+            : name == "paste"         ? @image-url("../assets/icons/paste.svg")
+            : name == "delete"        ? @image-url("../assets/icons/delete.svg")
+            : name == "rename"        ? @image-url("../assets/icons/rename.svg")
+            : name == "properties"    ? @image-url("../assets/icons/properties.svg")
+            : name == "view-list"         ? @image-url("../assets/icons/view-list.svg")
+            : name == "view-grid-small"   ? @image-url("../assets/icons/view-grid-small.svg")
+            : name == "view-grid-medium"  ? @image-url("../assets/icons/view-grid-medium.svg")
+            : name == "view-grid-large"   ? @image-url("../assets/icons/view-grid-large.svg")
+            : name == "settings"          ? @image-url("../assets/icons/settings.svg")
+            // Fallback: generic file (content)
+            : (Settings.icon-style == IconStyle.color ? @image-url("../assets/icons/color/file-generic.svg") : @image-url("../assets/icons/file-generic.svg"));
+    }
+
+    // Symlink emblem overlay (bottom-right corner, fixed proportions). Already
+    // a colour badge, so it's never recoloured.
+    if show-symlink-emblem: Image {
+        source: Settings.icon-style == IconStyle.color
+            ? @image-url("../assets/icons/color/symlink-emblem.svg")
+            : @image-url("../assets/icons/symlink-emblem.svg");
+        width: parent.width * 0.55;
+        height: parent.height * 0.55;
+        x: parent.width - self.width + 2px;
+        y: parent.height - self.height + 2px;
+        image-fit: contain;
+    }
+}

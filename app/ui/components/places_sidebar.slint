@@ -1,0 +1,265 @@
+import { ColorPalette, AppState, Callabler, Settings, Translations, DragState } from "../globals.slint";
+import { Icon } from "../icons.slint";
+import { PlaceItemData } from "structs.slint";
+import { ListView } from "std-widgets.slint";
+
+component PlaceRow inherits Rectangle {
+    in property <PlaceItemData> data;
+    in property <bool> is-active;
+    // The sidebar list's window position + scroll, passed in so we can derive
+    // this row's window rect from its (reliable) local `y` rather than its
+    // (unreliable, in a ListView) absolute-position.
+    in property <length> list-abs-x;
+    in property <length> list-abs-y;
+    in property <length> list-vp-y;
+    property <length> win-x: list-abs-x + self.x;
+    property <length> win-y: list-abs-y + list-vp-y + self.y;
+
+    // Drop target while dragging files onto this place (a local folder).
+    property <bool> drop-target:
+        DragState.active
+        && data.accepts-drop
+        && DragState.cursor-x >= root.win-x
+        && DragState.cursor-x < root.win-x + self.width
+        && DragState.cursor-y >= root.win-y
+        && DragState.cursor-y < root.win-y + self.height;
+
+    changed drop-target => {
+        if (root.drop-target) {
+            DragState.has-target = true;
+            DragState.target-path = data.path;
+            DragState.target-row = -1;
+        } else if (DragState.has-target && DragState.target-path == data.path) {
+            DragState.has-target = false;
+            DragState.target-path = "";
+        }
+    }
+
+    // Bar entries get extra height for the progress strip + tiny caption;
+    // everything else stays compact at 30 px.
+    height: data.has-usage ? 50px : 30px;
+    border-radius: root.drop-target ? 4px : 0px;
+    border-width: root.drop-target ? 2px : 0px;
+    border-color: ColorPalette.accent;
+    background:
+          root.drop-target         ? ColorPalette.bg-row-selected
+        : data.is-section-header   ? transparent
+        : is-active                ? ColorPalette.bg-row-selected
+        : ta.has-hover             ? ColorPalette.bg-row-hover
+        :                            transparent;
+
+    HorizontalLayout {
+        padding-left: data.is-section-header ? 10px : 18px;
+        padding-right: 10px;
+        spacing: 8px;
+        alignment: start;
+
+        if !data.is-section-header: Rectangle {
+            width: 16px;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                name: data.icon-name;
+                size: 16px;
+                tint: is-active ? ColorPalette.icon-tint-selected : ColorPalette.icon-tint;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+
+            Text {
+                text: data.label;
+                color: data.is-section-header
+                    ? ColorPalette.text-secondary
+                    : (is-active ? ColorPalette.text-on-selected : ColorPalette.text-primary);
+                font-size: data.is-section-header ? 11px : 13px;
+                font-weight: data.is-section-header ? 700 : 400;
+                overflow: elide;
+            }
+
+            if data.has-usage: Rectangle {
+                height: 4px;
+                background: ColorPalette.border-subtle;
+                border-radius: 2px;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * clamp(data.usage-fraction, 0.0, 1.0);
+                    height: parent.height;
+                    background: data.usage-fraction > 0.9
+                        ? #e74c3c       // near-full → red
+                        : data.usage-fraction > 0.75
+                          ? #f39c12     // getting tight → amber
+                          : ColorPalette.accent;
+                    border-radius: 2px;
+                }
+            }
+
+            if data.has-usage: Text {
+                text: data.usage-text;
+                color: is-active
+                    ? ColorPalette.text-on-selected
+                    : ColorPalette.text-secondary;
+                font-size: 10px;
+                overflow: elide;
+            }
+        }
+    }
+
+    ta := TouchArea {
+        enabled: !data.is-section-header;
+        mouse-cursor: !data.is-section-header ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            if !data.is-section-header && data.path != "" {
+                Callabler.place-clicked(data.path);
+            }
+        }
+        // Right-click a bookmark → context menu to remove it; right-click
+        // Trash → context menu to empty it.
+        pointer-event(ev) => {
+            if ev.button == PointerEventButton.right
+                && ev.kind == PointerEventKind.up
+                && (data.is-bookmark || data.is-trash) {
+                bm-menu.show();
+            }
+        }
+    }
+
+    bm-menu := PopupWindow {
+        x: ta.mouse-x;
+        y: ta.mouse-y;
+        width: 200px;
+        height: 36px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            background: ColorPalette.bg-panel;
+            border-color: ColorPalette.border-subtle;
+            border-width: 1px;
+            border-radius: 8px;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000060;
+            drop-shadow-offset-y: 4px;
+
+            VerticalLayout {
+                padding: 4px;
+
+                if data.is-bookmark: Rectangle {
+                    height: 28px;
+                    background: remove-ta.has-hover ? ColorPalette.bg-row-hover : transparent;
+                    border-radius: 5px;
+
+                    // The highlight (this rectangle) and the clickable area
+                    // (remove-ta) share the same bounds, so the hover never
+                    // extends past the button.
+                    remove-ta := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            Callabler.remove-bookmark(data.path);
+                            bm-menu.close();
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            name: "delete";
+                            size: 16px;
+                            tint: ColorPalette.icon-tint;
+                        }
+                        Text {
+                            text: Translations.menu-remove-bookmark;
+                            color: ColorPalette.text-primary;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            font-size: 12px;
+                        }
+                    }
+                }
+
+                if data.is-trash: Rectangle {
+                    height: 28px;
+                    background: empty-trash-ta.has-hover ? ColorPalette.bg-row-hover : transparent;
+                    border-radius: 5px;
+
+                    empty-trash-ta := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            Callabler.empty-trash();
+                            bm-menu.close();
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            name: "delete";
+                            size: 16px;
+                            tint: ColorPalette.icon-tint;
+                        }
+                        Text {
+                            text: Translations.menu-empty-trash;
+                            color: ColorPalette.text-primary;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            font-size: 12px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component PlacesSidebar inherits Rectangle {
+    in property <[PlaceItemData]> items;
+
+    background: ColorPalette.bg-sidebar;
+
+    list-view := ListView {
+        x: 0; y: 6px;
+        width: parent.width - 5px;     // leave 4 px for the resize gripper
+        height: parent.height - 12px;
+
+        for it in items: PlaceRow {
+            data: it;
+            is-active: !it.is-section-header && AppState.current-path == it.path;
+            list-abs-x: list-view.absolute-position.x;
+            list-abs-y: list-view.absolute-position.y;
+            list-vp-y: list-view.viewport-y;
+        }
+    }
+
+    // Right-edge resize gripper. Drag changes Settings.sidebar-width which
+    // the layout watches; persisted by autosave.
+    Rectangle {
+        x: parent.width - 4px;
+        width: 4px;
+        height: parent.height;
+        background: handle-ta.has-hover || handle-ta.pressed
+            ? ColorPalette.accent.with-alpha(0.6)
+            : ColorPalette.border-subtle;
+        animate background { duration: 120ms; }
+
+        handle-ta := TouchArea {
+            mouse-cursor: MouseCursor.col-resize;
+            moved => {
+                if self.pressed {
+                    // Translate movement-since-press into a new sidebar-width.
+                    Settings.sidebar-width = max(
+                        160px,
+                        min(450px, Settings.sidebar-width + (self.mouse-x - self.pressed-x))
+                    );
+                }
+            }
+        }
+    }
+}

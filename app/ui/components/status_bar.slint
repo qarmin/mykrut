@@ -1,0 +1,109 @@
+import { ColorPalette, Translations, AppState, Settings, Callabler } from "../globals.slint";
+
+/// One of the 7 size segments. Click to jump to that step; the visible bar
+/// inside grows with the step so the strip reads like a small bar-chart.
+component SizeSegment inherits Rectangle {
+    in property <int> step;          // 1..=7
+    in property <bool> is-active;
+    callback clicked();
+
+    width: 8px;
+    height: 22px;       // fixed footprint so HorizontalLayout aligns segments
+    background: transparent;
+
+    bar := Rectangle {
+        x: 0;
+        width: parent.width;
+        height: 4px + step * 2px;     // 6, 8, 10, ... 18px
+        y: (parent.height - self.height) / 2;
+        border-radius: 2px;
+        background:
+              is-active            ? ColorPalette.accent
+            : ta.has-hover         ? ColorPalette.bg-row-hover
+            :                        ColorPalette.border-subtle;
+        animate background { duration: 80ms; }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component StatusBar inherits Rectangle {
+    in property <int> item-count;
+    in property <int> selected-count;
+
+    height: 24px;
+    background: ColorPalette.bg-sidebar;
+
+    // Top border strip.
+    Rectangle {
+        x: 0; y: 0;
+        width: parent.width; height: 1px;
+        background: ColorPalette.border-subtle;
+    }
+
+    // Left: free-disk indicator (the less important figure).
+    Text {
+        x: 10px;
+        width: parent.width / 3;
+        color: ColorPalette.text-secondary;
+        font-size: 11px;
+        vertical-alignment: center;
+        height: parent.height;
+        overflow: elide;
+        text: AppState.disk-free-text;
+    }
+
+    // Centre: current folder item count / selection summary (the figure the
+    // user is most likely watching while they work).
+    Text {
+        x: (parent.width - self.width) / 2;
+        // Cap so a long selection summary elides instead of sliding under the
+        // size scrubber on the right or the disk figure on the left.
+        max-width: parent.width / 2;
+        color: ColorPalette.text-primary;
+        font-size: 11px;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        height: parent.height;
+        overflow: elide;
+        text: AppState.error-text != ""
+            ? Translations.error-prefix + " " + AppState.error-text
+            : AppState.loading
+                ? Translations.status-loading
+                : AppState.selection-summary != ""
+                    ? AppState.selection-summary
+                    : item-count + " " + Translations.status-items;
+    }
+
+    // Right: 7-step size scrubber. Wraps the bars in a TouchArea that also
+    // handles wheel scroll so the user can spin it with the mouse.
+    size-strip := Rectangle {
+        x: parent.width - self.width - 10px;
+        width: 130px;
+        height: parent.height;
+
+        wheel-ta := TouchArea {
+            scroll-event(event) => {
+                Callabler.debug-wheel("status_bar-strip", event.delta-y / 1px, AppState.ctrl-held);
+                if event.delta-y > 0 { Callabler.cycle-item-size(1); }
+                else if event.delta-y < 0 { Callabler.cycle-item-size(-1); }
+                accept
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 3px;
+            padding-right: 4px;
+
+            for s in [1, 2, 3, 4, 5, 6, 7]: SizeSegment {
+                step: s;
+                is-active: Settings.item-size == s;
+                clicked => { Settings.item-size = s; }
+            }
+        }
+    }
+}

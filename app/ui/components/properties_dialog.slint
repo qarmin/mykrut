@@ -1,0 +1,263 @@
+import { ColorPalette, Translations, Callabler, DialogState } from "../globals.slint";
+import { PropertiesData, PropKv } from "structs.slint";
+import { Button, Spinner, CheckBox, ListView } from "std-widgets.slint";
+
+component KvRow inherits Rectangle {
+    in property <string> key;
+    in property <string> value;
+    in property <bool> show-spinner: false;
+
+    height: 24px;
+
+    HorizontalLayout {
+        spacing: 12px;
+        Text {
+            text: key + ":";
+            color: ColorPalette.text-secondary;
+            width: 120px;
+            vertical-alignment: center;
+            font-size: 12px;
+        }
+        if show-spinner: Spinner {
+            indeterminate: true;
+            width: 14px; height: 14px;
+            y: (parent.height - self.height) / 2;
+        }
+        Text {
+            text: value;
+            color: ColorPalette.text-primary;
+            vertical-alignment: center;
+            font-size: 12px;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+    }
+}
+
+// One clickable tab in the header strip.
+component TabButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+    height: 30px;
+    border-radius: 6px;
+    background: active ? ColorPalette.bg-row-selected : (ta.has-hover ? ColorPalette.bg-row-hover : transparent);
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        Text {
+            text: label;
+            color: active ? ColorPalette.text-on-selected : ColorPalette.text-primary;
+            vertical-alignment: center;
+            font-size: 12px;
+            font-weight: active ? 700 : 400;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One permission triad row (Owner / Group / Others) with R/W/X checkboxes.
+component PermRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <bool> enabled;
+    in-out property <bool> read;
+    in-out property <bool> write;
+    in-out property <bool> exec;
+    spacing: 14px;
+    Text {
+        text: label;
+        color: ColorPalette.text-secondary;
+        width: 90px;
+        vertical-alignment: center;
+        font-size: 12px;
+    }
+    CheckBox { text: Translations.props-perm-read; checked <=> root.read; enabled: root.enabled; }
+    CheckBox { text: Translations.props-perm-write; checked <=> root.write; enabled: root.enabled; }
+    CheckBox { text: Translations.props-perm-exec; checked <=> root.exec; enabled: root.enabled; }
+}
+
+export component PropertiesDialog inherits Rectangle {
+    in property <PropertiesData> data;
+    in property <[PropKv]> media-rows;
+
+    property <int> active-tab: 0;
+
+    // Local, editable copies of the permission bits (the `data` struct is
+    // driven by Rust, so checkboxes can't bind to it two-way). Re-initialised
+    // each time the dialog is shown because it lives behind an `if`.
+    property <bool> p-or: data.perm-or;
+    property <bool> p-ow: data.perm-ow;
+    property <bool> p-ox: data.perm-ox;
+    property <bool> p-gr: data.perm-gr;
+    property <bool> p-gw: data.perm-gw;
+    property <bool> p-gx: data.perm-gx;
+    property <bool> p-tr: data.perm-tr;
+    property <bool> p-tw: data.perm-tw;
+    property <bool> p-tx: data.perm-tx;
+
+    property <int> d-owner: (p-or ? 4 : 0) + (p-ow ? 2 : 0) + (p-ox ? 1 : 0);
+    property <int> d-group: (p-gr ? 4 : 0) + (p-gw ? 2 : 0) + (p-gx ? 1 : 0);
+    property <int> d-other: (p-tr ? 4 : 0) + (p-tw ? 2 : 0) + (p-tx ? 1 : 0);
+    property <int> mode-val: d-owner * 64 + d-group * 8 + d-other;
+
+    background: #00000088;
+
+    TouchArea {
+        clicked => {
+            DialogState.properties-open = false;
+            Callabler.properties-closed();
+        }
+        scroll-event(event) => { accept }
+    }
+
+    Rectangle {
+        x: (parent.width - 520px) / 2;
+        y: (parent.height - 560px) / 2;
+        width: 520px;
+        height: 560px;
+        background: ColorPalette.bg-panel;
+        border-color: ColorPalette.border-subtle;
+        border-width: 1px;
+        border-radius: 10px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000080;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 22px;
+            spacing: 10px;
+
+            Text {
+                text: data.name;
+                color: ColorPalette.text-primary;
+                font-size: 16px;
+                font-weight: 700;
+                overflow: elide;
+            }
+
+            // Tab strip.
+            HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+                TabButton {
+                    label: Translations.props-tab-general;
+                    active: root.active-tab == 0;
+                    clicked => { root.active-tab = 0; }
+                }
+                TabButton {
+                    label: Translations.props-tab-permissions;
+                    active: root.active-tab == 1;
+                    clicked => { root.active-tab = 1; }
+                }
+                if data.media-kind != "": TabButton {
+                    label: data.media-kind;
+                    active: root.active-tab == 2;
+                    clicked => { root.active-tab = 2; }
+                }
+            }
+            Rectangle { height: 1px; background: ColorPalette.border-subtle; }
+
+            // ── General ──────────────────────────────────────────────────
+            if root.active-tab == 0: VerticalLayout {
+                spacing: 2px;
+                vertical-stretch: 1;
+                KvRow { key: Translations.props-path; value: data.path; }
+                KvRow { key: Translations.props-kind; value: data.kind; }
+                KvRow {
+                    key: Translations.props-size;
+                    value: data.size-text;
+                    show-spinner: data.deep-scan-active;
+                }
+                if data.is-dir: KvRow {
+                    key: Translations.props-files;
+                    value: data.file-count-text;
+                    show-spinner: data.deep-scan-active;
+                }
+                Rectangle { height: 8px; }
+                KvRow { key: Translations.props-modified; value: data.modified; }
+                KvRow { key: Translations.props-accessed; value: data.accessed; }
+                KvRow { key: Translations.props-created; value: data.created; }
+                Rectangle { height: 8px; }
+                KvRow { key: Translations.props-owner; value: data.owner; }
+                KvRow { key: Translations.props-group; value: data.group; }
+                KvRow { key: Translations.props-mode; value: data.mode-octal; }
+                Rectangle { vertical-stretch: 1; }
+            }
+
+            // ── Permissions ──────────────────────────────────────────────
+            if root.active-tab == 1: VerticalLayout {
+                spacing: 12px;
+                vertical-stretch: 1;
+                Rectangle { height: 4px; }
+                PermRow {
+                    label: Translations.props-perm-owner;
+                    enabled: data.can-edit-perms;
+                    read <=> root.p-or; write <=> root.p-ow; exec <=> root.p-ox;
+                }
+                PermRow {
+                    label: Translations.props-perm-group;
+                    enabled: data.can-edit-perms;
+                    read <=> root.p-gr; write <=> root.p-gw; exec <=> root.p-gx;
+                }
+                PermRow {
+                    label: Translations.props-perm-other;
+                    enabled: data.can-edit-perms;
+                    read <=> root.p-tr; write <=> root.p-tw; exec <=> root.p-tx;
+                }
+                Rectangle { height: 6px; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: Translations.props-mode + ":";
+                        color: ColorPalette.text-secondary;
+                        width: 90px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: "0\{root.d-owner}\{root.d-group}\{root.d-other}";
+                        color: ColorPalette.text-primary;
+                        vertical-alignment: center;
+                        font-size: 13px;
+                        font-family: "monospace";
+                    }
+                }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: Translations.props-apply;
+                        primary: true;
+                        enabled: data.can-edit-perms;
+                        clicked => { Callabler.apply-permissions(root.mode-val); }
+                    }
+                }
+            }
+
+            // ── Media (image/audio/video) ────────────────────────────────
+            if root.active-tab == 2 && data.media-kind != "": ListView {
+                vertical-stretch: 1;
+                for row in root.media-rows: KvRow {
+                    key: row.key;
+                    value: row.value;
+                }
+            }
+
+            Rectangle { height: 1px; background: ColorPalette.border-subtle; }
+            HorizontalLayout {
+                alignment: end;
+                Button {
+                    text: Translations.props-close;
+                    clicked => {
+                        DialogState.properties-open = false;
+                        Callabler.properties-closed();
+                    }
+                }
+            }
+        }
+    }
+}

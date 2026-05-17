@@ -1,0 +1,56 @@
+// Clickable path breadcrumbs. Each segment navigates to that prefix.
+// Background area outside segments → enters edit mode (handled by parent).
+
+import { ColorPalette, AppState, Callabler } from "../globals.slint";
+
+component Segment inherits Rectangle {
+    in property <string> label;
+    in property <string> full-path;
+    in property <bool> is-last;
+
+    width: txt.preferred-width + 12px;
+    height: 100%;
+    border-radius: 4px;
+    background: ta.has-hover ? ColorPalette.bg-row-hover : transparent;
+
+    txt := Text {
+        x: 6px;
+        text: label;
+        color: is-last ? ColorPalette.text-primary : ColorPalette.text-secondary;
+        vertical-alignment: center;
+        font-size: 13px;
+        font-weight: is-last ? 600 : 400;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { Callabler.navigate-to(full-path); }
+    }
+}
+
+component Separator inherits Text {
+    width: 10px;
+    height: 100%;
+    text: "›";
+    color: ColorPalette.text-secondary;
+    vertical-alignment: center;
+    horizontal-alignment: center;
+    font-size: 13px;
+}
+
+export component Breadcrumbs inherits HorizontalLayout {
+    alignment: start;
+    spacing: 0;
+    padding-left: 4px;
+    padding-right: 4px;
+
+    for s[idx] in AppState.path-segments: HorizontalLayout {
+        spacing: 0;
+        if idx > 0: Separator {}
+        Segment {
+            label: s.label;
+            full-path: s.full-path;
+            is-last: idx == AppState.path-segments.length - 1;
+        }
+    }
+}

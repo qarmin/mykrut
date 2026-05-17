@@ -1,0 +1,288 @@
+// Grid view: tiles in a Flickable with absolute positioning + equal gaps.
+// Background TouchArea handles:
+//   – left-click in empty area: deselect all
+//   – left-drag in empty area: rubber-band selection (sent to Rust to compute)
+//   – right-click in empty area: folder context menu
+//   – Ctrl+scroll-wheel: cycles view mode
+
+import { ColorPalette, Translations, AppState, Callabler, Settings, SearchState } from "../globals.slint";
+// NOTE: All scroll-event handlers below read AppState.ctrl-held instead of
+// event.modifiers.control — Slint 1.16 winit backend strips modifier state
+// from wheel events (issue #6263). FocusScope keeps ctrl-held in sync.
+import { FileRowData } from "structs.slint";
+import { FileTile } from "file_tile.slint";
+import { ContextMenu } from "context_menu.slint";
+import { FolderContextMenu } from "folder_context_menu.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component FileGridView inherits Rectangle {
+    in property <[FileRowData]> rows;
+    in property <bool> has-selection;
+    in property <bool> single-selection;
+    in property <bool> selection-is-dir;
+    in property <bool> clipboard-has-items;
+    in property <bool> selection-in-trash;
+    /// True when this view is displaying the search overlay (vs a folder).
+    in property <bool> showing-search;
+    in property <bool> is-active-pane: true;
+
+    in property <length> tile-w: 130px;
+    in property <length> tile-h: 150px;
+    in property <length> icon-size: 80px;
+
+    property <length> gutter: 12px;
+    property <int> cols: max(1, (root.width - 2 * gutter) / tile-w);
+    property <length> cell-w: (root.width - 2 * gutter) / cols;
+    property <int> nrows: ceil(rows.length / cols);
+    property <length> total-h: max(nrows * tile-h + 2 * gutter, root.height);
+
+    // Virtualization window. A plain `for` inside a ScrollView instantiates
+    // EVERY item (unlike ListView), so a folder of thousands of images would
+    // otherwise create thousands of live textured tiles and stall the render
+    // thread for seconds. Instead we only build the tiles in the viewport plus
+    // a small buffer above/below, and re-bind them to new rows as we scroll.
+    property <int> first-vis-row: max(0, floor((-flick.viewport-y - gutter) / tile-h) - 1);
+    property <int> vis-rows: ceil(flick.height / tile-h) + 3;
+    property <int> first-idx: first-vis-row * cols;
+    property <int> window-count: max(0, min(rows.length - first-idx, vis-rows * cols));
+
+    // Index of the tile whose full name is currently shown in the hover popup
+    // (-1 = none). Set by tiles via `hover-name`.
+    property <int> hover-idx: -1;
+
+    property <bool> dragging: false;
+    property <length> drag-start-x;
+    property <length> drag-start-y;
+    property <length> drag-cur-x;
+    property <length> drag-cur-y;
+
+    background: ColorPalette.bg-panel;
+    clip: true;
+
+    ctx := ContextMenu {
+        has-selection: root.has-selection;
+        single-selection: root.single-selection;
+        selection-is-dir: root.selection-is-dir;
+        clipboard-has-items: root.clipboard-has-items;
+        selection-in-trash: root.selection-in-trash;
+    }
+
+    folder-ctx := FolderContextMenu {
+        clipboard-has-items: root.clipboard-has-items;
+    }
+
+    if rows.length == 0 && !AppState.loading: Text {
+        text: root.showing-search
+            ? (SearchState.query == ""
+                ? Translations.search-prompt
+                : SearchState.searching
+                    ? Translations.search-searching
+                    : Translations.search-no-results)
+            : Translations.status-empty;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        color: ColorPalette.text-secondary;
+        font-italic: true;
+    }
+
+    flick := ScrollView {
+        width: parent.width;
+        height: parent.height;
+        viewport-width: parent.width;
+        viewport-height: total-h;
+        vertical-scrollbar-policy: always-on;
+        horizontal-scrollbar-policy: always-off;
+
+        // Background-layer TouchArea — fires only when the click is not on a tile
+        // (tiles' own TouchAreas are above and consume the event first).
+        bg-ta := TouchArea {
+            x: 0; y: 0;
+            width: parent.width;
+            height: total-h;
+            mouse-cursor: MouseCursor.default;
+
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    if !root.is-active-pane {
+                        Callabler.swap-active-pane();
+                        return;
+                    }
+                    if event.button == PointerEventButton.left {
+                        root.drag-start-x = self.mouse-x;
+                        root.drag-start-y = self.mouse-y;
+                        root.drag-cur-x = self.mouse-x;
+                        root.drag-cur-y = self.mouse-y;
+                        root.dragging = true;
+                        // Snapshot selection so a Ctrl-drag toggles against it.
+                        Callabler.rubberband-begin();
+                    } else if event.button == PointerEventButton.right {
+                        // viewport-y is negative when scrolled down — ADD it to
+                        // turn content-y into visible-y in FileGridView coords.
+                        folder-ctx.pop-x = self.mouse-x;
+                        folder-ctx.pop-y = self.mouse-y + flick.viewport-y;
+                        folder-ctx.open();
+                    }
+                } else if event.kind == PointerEventKind.up
+                       && event.button == PointerEventButton.left {
+                    // Reclaim focus on release (not press — press would cancel
+                    // the grab and break rubber-band + drag-and-drop).
+                    AppState.focus-nonce += 1;
+                    if root.dragging {
+                        // Distinguish click (no movement) from drag. A plain
+                        // click on empty space clears; a Ctrl+click preserves
+                        // the selection (it's an additive gesture).
+                        if abs(root.drag-cur-x - root.drag-start-x) < 4px
+                           && abs(root.drag-cur-y - root.drag-start-y) < 4px {
+                            if !AppState.ctrl-held {
+                                Callabler.select-none();
+                            }
+                        } else {
+                            Callabler.rubberband-select(
+                                root.drag-start-x / 1px,
+                                root.drag-start-y / 1px,
+                                root.drag-cur-x / 1px,
+                                root.drag-cur-y / 1px,
+                                root.tile-w / 1px,
+                                root.tile-h / 1px,
+                                root.cell-w / 1px,
+                                root.cols,
+                                root.gutter / 1px,
+                                AppState.ctrl-held,
+                            );
+                        }
+                    }
+                    root.dragging = false;
+                }
+            }
+
+            moved => {
+                if root.dragging {
+                    root.drag-cur-x = self.mouse-x;
+                    root.drag-cur-y = self.mouse-y;
+                    // Update the selection live while the rubber-band grows/shrinks
+                    // (once past a small threshold so a plain click doesn't select),
+                    // matching Nemo/Nautilus instead of only committing on release.
+                    if abs(root.drag-cur-x - root.drag-start-x) >= 4px
+                       || abs(root.drag-cur-y - root.drag-start-y) >= 4px {
+                        Callabler.rubberband-select(
+                            root.drag-start-x / 1px,
+                            root.drag-start-y / 1px,
+                            root.drag-cur-x / 1px,
+                            root.drag-cur-y / 1px,
+                            root.tile-w / 1px,
+                            root.tile-h / 1px,
+                            root.cell-w / 1px,
+                            root.cols,
+                            root.gutter / 1px,
+                            AppState.ctrl-held,
+                        );
+                    }
+                }
+            }
+
+            // Ctrl+wheel cycles item-size. For normal scroll we intercept and
+            // bump viewport-y by ~60 % of tile height — Slint's default Flickable
+            // step is platform-fixed (~50 px), which barely moves anything when
+            // tiles are huge (400+ px in the XL gallery step).
+            scroll-event(event) => {
+                Callabler.debug-wheel("file_grid_view-flick", event.delta-y / 1px, AppState.ctrl-held);
+                if AppState.ctrl-held {
+                    if event.delta-y > 0 {
+                        Callabler.cycle-item-size(1);
+                    } else if event.delta-y < 0 {
+                        Callabler.cycle-item-size(-1);
+                    }
+                    return accept;
+                }
+                if event.delta-y != 0 {
+                    let step = max(root.tile-h * 0.6, 60px);
+                    let dir = event.delta-y > 0 ? 1.0 : -1.0;
+                    let lo = min(0px, -(root.total-h - flick.height));
+                    flick.viewport-y = clamp(flick.viewport-y + dir * step, lo, 0px);
+                    return accept;
+                }
+                reject
+            }
+        }
+
+        // Tiles render on top of bg-ta. Only the visible window is instantiated
+        // (see `window-count`); each tile derives its real model index from the
+        // window offset so its grid position is unchanged.
+        for i in window-count: FileTile {
+            property <int> idx: root.first-idx + i;
+            x: gutter + mod(idx, cols) * cell-w + (cell-w - tile-w) / 2;
+            y: gutter + floor(idx / cols) * tile-h;
+            // Window position from the stable `flick` element (the tile's own
+            // absolute-position is unreliable inside a ScrollView in Slint 1.16).
+            win-x: flick.absolute-position.x + flick.viewport-x + gutter + mod(idx, cols) * cell-w + (cell-w - tile-w) / 2;
+            win-y: flick.absolute-position.y + flick.viewport-y + gutter + floor(idx / cols) * tile-h;
+            tile-width: tile-w;
+            tile-height: tile-h;
+            icon-size: icon-size;
+            data: rows[idx];
+            row-index: idx;
+            is-active-pane: root.is-active-pane;
+            request-context-menu(mx, my) => {
+                // `self.absolute-position` of a repeater element inside ScrollView
+                // is unreliable in Slint 1.16 (issues #5756/#7402), so build the
+                // FileGridView-local position from the tile's own x/y plus the
+                // scroll offset. viewport-y is negative when scrolled down, so ADD
+                // it (content-y + viewport-y = visible-y).
+                ctx.pop-x = self.x + mx;
+                ctx.pop-y = self.y + my + flick.viewport-y;
+                ctx.open();
+            }
+            request-wheel-scroll(dir) => {
+                let step = max(root.tile-h * 0.6, 60px);
+                let lo = min(0px, -(root.total-h - flick.height));
+                flick.viewport-y = clamp(flick.viewport-y + dir * step, lo, 0px);
+            }
+            hover-name(show) => {
+                if show {
+                    root.hover-idx = idx;
+                } else if root.hover-idx == idx {
+                    root.hover-idx = -1;
+                }
+            }
+        }
+
+        // Full-name popup for the hovered tile when its label is elided. Drawn
+        // here, not inside the tile, so it can overflow the tile's clip onto the
+        // neighbours; it vanishes as soon as the cursor leaves the tile.
+        if root.hover-idx >= 0 && root.hover-idx < rows.length: Rectangle {
+            property <int> hidx: root.hover-idx;
+            x: gutter + mod(hidx, cols) * cell-w + (cell-w - tile-w) / 2;
+            y: gutter + floor(hidx / cols) * tile-h + 6px + icon-size + 4px;
+            width: tile-w;
+            height: popup-label.preferred-height + 8px;
+            background: ColorPalette.bg-panel;
+            border-color: ColorPalette.border-subtle;
+            border-width: 1px;
+            border-radius: 6px;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: #00000060;
+            z: 100;
+            popup-label := Text {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                text: rows[hidx].display-name;
+                color: ColorPalette.text-primary;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+                font-size: tile-w < 110px ? 10px : 12px;
+            }
+        }
+
+        // Rubber-band overlay.
+        if root.dragging: Rectangle {
+            x: min(root.drag-start-x, root.drag-cur-x);
+            y: min(root.drag-start-y, root.drag-cur-y);
+            width: abs(root.drag-cur-x - root.drag-start-x);
+            height: abs(root.drag-cur-y - root.drag-start-y);
+            background: ColorPalette.accent.with-alpha(0.18);
+            border-color: ColorPalette.accent.with-alpha(0.7);
+            border-width: 1px;
+        }
+    }
+}

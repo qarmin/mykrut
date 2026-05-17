@@ -1,0 +1,186 @@
+import { ColorPalette, Translations, AppState, Callabler, Settings, AppViewMode } from "../globals.slint";
+import { IconButton } from "icon_button.slint";
+import { SettingsPopup } from "settings_popup.slint";
+import { Breadcrumbs } from "breadcrumbs.slint";
+import { LineEdit } from "std-widgets.slint";
+
+component ViewModeButton inherits Rectangle {
+    in property <string> icon-name;
+    in property <AppViewMode> target;
+
+    property <bool> active: Settings.view-mode == target;
+
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background:
+          active                       ? ColorPalette.bg-row-selected
+        : ta.has-hover && ta.pressed   ? ColorPalette.bg-row-selected
+        : ta.has-hover                 ? ColorPalette.bg-row-hover
+        :                                transparent;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 18px;
+        height: 18px;
+        image-fit: contain;
+        colorize: active ? ColorPalette.icon-tint-selected : ColorPalette.icon-tint;
+        source:
+              icon-name == "view-list"        ? @image-url("../../assets/icons/view-list.svg")
+            : icon-name == "view-grid-small"  ? @image-url("../../assets/icons/view-grid-small.svg")
+            : icon-name == "view-grid-medium" ? @image-url("../../assets/icons/view-grid-medium.svg")
+            : icon-name == "view-grid-large"  ? @image-url("../../assets/icons/view-grid-large.svg")
+            : @image-url("../../assets/icons/view-list.svg");
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { Settings.view-mode = target; }
+    }
+}
+
+export component Toolbar inherits Rectangle {
+    height: 44px;
+    background: ColorPalette.bg-panel;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+        spacing: 4px;
+
+        IconButton {
+            icon-name: "back";
+            tooltip: Translations.btn-back;
+            enabled: AppState.can-go-back;
+            clicked => { Callabler.navigate-back(); }
+        }
+        IconButton {
+            icon-name: "forward";
+            tooltip: Translations.btn-forward;
+            enabled: AppState.can-go-forward;
+            clicked => { Callabler.navigate-forward(); }
+        }
+        IconButton {
+            icon-name: "up";
+            tooltip: Translations.btn-up;
+            enabled: AppState.can-go-up;
+            clicked => { Callabler.navigate-up(); }
+        }
+        IconButton {
+            icon-name: "home";
+            tooltip: Translations.btn-home;
+            clicked => { Callabler.navigate-home(); }
+        }
+
+        path-bar := Rectangle {
+            horizontal-stretch: 1;
+            height: 32px;
+            background: ColorPalette.bg-row-even;
+            border-color: editing ? ColorPalette.accent : ColorPalette.border-subtle;
+            border-width: 1px;
+            border-radius: 6px;
+
+            // Backing flag lives on the AppState global so main_window's
+            // FocusScope can react when the user leaves edit mode (otherwise
+            // focus stays on the now-hidden LineEdit and shortcuts break).
+            property <bool> editing <=> AppState.path-edit-active;
+
+            // External navigation (sidebar click, Home button, back/forward, …)
+            // mustn't leave the bar stuck in edit mode showing a stale value —
+            // drop edit mode whenever Rust pushes a new path.
+            property <string> path-mirror: AppState.current-path;
+            changed path-mirror => {
+                path-bar.editing = false;
+            }
+
+            edit := LineEdit {
+                x: 4px;
+                y: 2px;
+                width: parent.width - 8px;
+                height: parent.height - 4px;
+                font-size: 13px;
+                visible: path-bar.editing;
+                text: AppState.current-path;
+                accepted(t) => {
+                    path-bar.editing = false;
+                    Callabler.navigate-to(t);
+                }
+                key-pressed(event) => {
+                    if event.text == Key.Escape {
+                        path-bar.editing = false;
+                        return accept;
+                    }
+                    reject
+                }
+            }
+
+            // Clip the trail to the bar so a deep path can't draw over the
+            // toolbar buttons. When the trail is wider than the bar, anchor it
+            // to the right so the current folder (the tail) stays visible and
+            // the root end scrolls off the left.
+            if !path-bar.editing: Rectangle {
+                x: 4px;
+                width: parent.width - 8px;
+                height: 100%;
+                clip: true;
+
+                Breadcrumbs {
+                    height: 100%;
+                    width: max(self.preferred-width, parent.width);
+                    x: min(0px, parent.width - self.preferred-width);
+                }
+            }
+            // A thin trailing zone (right-side strip) lets the user click
+            // outside any segment to enter free-edit mode.
+            if !path-bar.editing: edit-area := TouchArea {
+                x: 0; y: 0;
+                width: parent.width;
+                height: parent.height;
+                z: -1;          // sits behind the breadcrumbs row so segment clicks win
+                mouse-cursor: MouseCursor.text;
+                clicked => {
+                    path-bar.editing = true;
+                    edit.text = AppState.current-path;
+                    edit.focus();
+                    edit.select-all();
+                }
+            }
+        }
+
+        // View-mode group: just list / gallery — element size lives in the
+        // bottom-right status-bar scrubber (independent of view mode).
+        Rectangle {
+            width: 4px;  // separator gap
+        }
+        ViewModeButton {
+            icon-name: "view-list";
+            target: AppViewMode.list;
+        }
+        ViewModeButton {
+            icon-name: "view-grid-large";
+            target: AppViewMode.gallery;
+        }
+
+        Rectangle { width: 4px; }
+        // Trash-only actions live in the dedicated TrashBar shown under the toolbar.
+        IconButton {
+            icon-name: "refresh";
+            tooltip: Translations.btn-refresh;
+            clicked => { Callabler.refresh(); }
+        }
+        settings-btn := IconButton {
+            icon-name: "settings";
+            tooltip: "Settings";
+            clicked => {
+                settings-popup.pop-x = self.x - 290px;
+                settings-popup.pop-y = self.height + 4px;
+                settings-popup.open();
+            }
+        }
+    }
+
+    settings-popup := SettingsPopup {}
+}

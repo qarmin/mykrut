@@ -1,0 +1,602 @@
+// Globals: Settings, ColorPalette, Translations, AppState, Callabler.
+// All UI-side string/color/state lives here so it's swappable from Rust.
+
+export enum AppViewMode {
+    list,
+    gallery,
+}
+
+export enum SortKey {
+    name,
+    size,
+    mtime,
+    kind,
+}
+
+export enum SortOrder {
+    ascending,
+    descending,
+}
+
+export enum SelectMode {
+    single,    // plain click: clear and select this row
+    toggle,    // Ctrl+click: toggle membership
+    range,     // Shift+click: select from anchor to this row
+}
+
+export enum NavKey {
+    up, down, page-up, page-down, home, end,
+}
+
+// File/folder icon set: flat monochrome line-art (theme-tinted) vs. full-colour.
+export enum IconStyle {
+    mono, color,
+}
+
+// ─── Theme settings ──────────────────────────────────────────────────────
+export global Settings {
+    in-out property <bool> dark-theme: true;
+    in-out property <AppViewMode> view-mode: AppViewMode.list;
+    /// Discrete element-size step shared by list + gallery (1=tiny … 7=huge).
+    /// Independent of view-mode so the user can crank up icon size in list too.
+    in-out property <int> item-size: 3;
+    in-out property <bool> show-hidden: false;
+    in-out property <SortKey> sort-key: SortKey.name;
+    in-out property <SortOrder> sort-order: SortOrder.ascending;
+    in-out property <bool> auto-refresh: false;
+    in-out property <length> sidebar-width: 220px;
+    /// Fraction of pane area allocated to the LEFT pane when split-view is on.
+    in-out property <float> split-ratio: 0.5;
+    /// Generated-thumbnail resolution: 0=Normal(128) 1=Large(256)
+    /// 2=X-Large(512) 3=XX-Large(1024). Default matches the previous hard-coded
+    /// X-Large.
+    in-out property <int> thumb-size: 2;
+    in-out property <IconStyle> icon-style: IconStyle.mono;
+    // List-view column visibility (Name is always shown). Toggled from the
+    // header right-click menu, persisted across sessions.
+    in-out property <bool> col-size-visible: true;
+    in-out property <bool> col-modified-visible: true;
+    in-out property <bool> col-kind-visible: true;
+    /// Max RAM (MiB) held by loaded thumbnails before new images stop loading.
+    /// 0 = unlimited. Guards against huge image folders exhausting memory.
+    in-out property <int> thumb-mem-budget-mb: 2048;
+}
+
+// ─── Color palette — every visible color in the app goes here ───────────
+export global ColorPalette {
+    out property <color> bg-window: Settings.dark-theme ? #1e1e1e : #f7f7f7;
+    out property <color> bg-panel: Settings.dark-theme ? #252525 : #ffffff;
+    out property <color> bg-sidebar: Settings.dark-theme ? #1a1a1a : #f0f0f0;
+    out property <color> bg-row-even: Settings.dark-theme ? #232323 : #fafafa;
+    out property <color> bg-row-odd: Settings.dark-theme ? #1e1e1e : #ffffff;
+    out property <color> bg-row-hover: Settings.dark-theme ? #2f2f2f : #e8eef7;
+    out property <color> bg-row-selected: Settings.dark-theme ? #2a4a7a : #cfe1ff;
+    out property <color> bg-row-selected-hover: Settings.dark-theme ? #335fa0 : #b8d2ff;
+
+    out property <color> text-primary: Settings.dark-theme ? #ececec : #1a1a1a;
+    out property <color> text-secondary: Settings.dark-theme ? #a0a0a0 : #555555;
+    out property <color> text-on-selected: Settings.dark-theme ? #ffffff : #0a2050;
+
+    out property <color> border-subtle: Settings.dark-theme ? #333333 : #d8d8d8;
+    out property <color> accent: #2f7ed8;
+    out property <color> accent-hover: #4a93e8;
+
+    out property <color> icon-tint: Settings.dark-theme ? #d0d0d0 : #404040;
+    out property <color> icon-tint-selected: Settings.dark-theme ? #ffffff : #0a2050;
+    out property <color> icon-accent: #2f7ed8;
+
+    public pure function row-bg(idx: int, hovered: bool, selected: bool) -> color {
+        if selected {
+            return hovered ? self.bg-row-selected-hover : self.bg-row-selected;
+        }
+        if hovered {
+            return self.bg-row-hover;
+        }
+        return mod(idx, 2) == 0 ? self.bg-row-even : self.bg-row-odd;
+    }
+}
+
+// ─── Translations — every UI string here ────────────────────────────────
+export global Translations {
+    in-out property <string> window-title: "File Manager";
+    in-out property <string> col-name: "Name";
+    in-out property <string> col-size: "Size";
+    in-out property <string> col-modified: "Modified";
+    in-out property <string> col-kind: "Kind";
+    in-out property <string> btn-back: "Back";
+    in-out property <string> btn-forward: "Forward";
+    in-out property <string> btn-up: "Up";
+    in-out property <string> btn-home: "Home";
+    in-out property <string> btn-refresh: "Refresh";
+    in-out property <string> btn-show-hidden: "Show hidden";
+    in-out property <string> status-empty: "Folder is empty";
+    in-out property <string> search-prompt: "Type something to search";
+    in-out property <string> search-no-results: "No results found";
+    in-out property <string> search-searching: "Searching…";
+    in-out property <string> status-items: "items";
+    in-out property <string> status-loading: "Loading…";
+    in-out property <string> error-prefix: "Error:";
+    // Context menu
+    in-out property <string> menu-open: "Open";
+    in-out property <string> menu-open-with: "Open with default app";
+    in-out property <string> menu-cut: "Cut";
+    in-out property <string> menu-copy: "Copy";
+    in-out property <string> menu-copy-path: "Copy path";
+    in-out property <string> menu-paste: "Paste";
+    in-out property <string> menu-rename: "Rename…";
+    in-out property <string> menu-trash: "Move to trash";
+    in-out property <string> menu-restore: "Restore";
+    in-out property <string> menu-restore-selected: "Restore selected";
+    in-out property <string> menu-empty-trash: "Empty trash";
+    in-out property <string> bar-restore-selected: "Restore Selected Items";
+    in-out property <string> bar-empty-trash: "Empty Trash";
+    in-out property <string> menu-delete: "Delete permanently…";
+    in-out property <string> menu-properties: "Properties";
+    in-out property <string> menu-new-folder: "New folder";
+    in-out property <string> menu-new-file: "New empty file";
+    in-out property <string> menu-paste-here: "Paste";
+    in-out property <string> menu-folder-properties: "Folder properties";
+    in-out property <string> menu-open-containing: "Open containing folder";
+    in-out property <string> menu-open-new-tab: "Open in new tab";
+    in-out property <string> menu-open-new-tabs: "Open in new tabs";
+    in-out property <string> menu-open-terminal: "Open in terminal";
+    in-out property <string> menu-open-as-root: "Open as root";
+    in-out property <string> menu-open-multi: "Open files";   // formatted with count
+    in-out property <string> menu-open-with-prefix: "Open with";
+    in-out property <string> menu-open-with-other: "Open with…";
+    in-out property <string> menu-extract: "Extract here";
+    in-out property <string> menu-compress: "Compress…";
+    // Compress dialog
+    in-out property <string> dlg-compress-title: "Create archive";
+    in-out property <string> dlg-compress-name: "Name:";
+    in-out property <string> dlg-compress-format: "Format:";
+    in-out property <string> dlg-compress-password: "Password (optional):";
+    in-out property <string> dlg-compress-password-na: "Password not supported for this format";
+    in-out property <string> dlg-compress-create: "Create";
+    // Open-with custom command
+    in-out property <string> dlg-open-with-custom: "Or run a custom command:";
+    in-out property <string> dlg-open-with-custom-ph: "e.g. mpv, gimp -n";
+    in-out property <string> dlg-open-with-remember: "Add to the list for next time";
+    in-out property <string> dlg-open-with-run: "Run";
+    // Open-with dialog
+    in-out property <string> dlg-open-with-title: "Open with";
+    in-out property <string> dlg-open-with-recommended: "Recommended applications";
+    in-out property <string> dlg-open-with-other: "Other applications";
+    in-out property <string> dlg-open-with-set-default: "Always use for this file type";
+    in-out property <string> dlg-open-with-open: "Open";
+    in-out property <string> dlg-open-with-default-tag: "(default)";
+    in-out property <string> dlg-open-with-empty: "No applications found.";
+    in-out property <string> banner-root-warning: "Running as root";
+    // Extract dialog
+    in-out property <string> dlg-extract-title: "Archive password";
+    in-out property <string> dlg-extract-body: "This archive is encrypted. Enter the password to continue.";
+    in-out property <string> dlg-extract-error-prefix: "Wrong password.";
+    in-out property <string> dlg-extract-confirm: "Extract";
+    // Dialogs
+    in-out property <string> dlg-delete-title: "Delete permanently?";
+    in-out property <string> dlg-delete-body: "The selected items will be deleted permanently. This cannot be undone.";
+    in-out property <string> dlg-rename-title: "Rename";
+    in-out property <string> dlg-rename-label: "New name:";
+    in-out property <string> dlg-ok: "OK";
+    in-out property <string> dlg-cancel: "Cancel";
+    in-out property <string> dlg-delete-confirm: "Delete";
+    in-out property <string> dlg-empty-trash-title: "Empty trash?";
+    in-out property <string> dlg-empty-trash-body: "All items in the trash will be deleted permanently. This cannot be undone.";
+    in-out property <string> dlg-empty-trash-confirm: "Empty trash";
+    in-out property <string> dlg-remote-title: "Connect to server";
+    in-out property <string> dlg-remote-body: "Enter the password to connect to";
+    in-out property <string> dlg-remote-error: "Connection failed — check the address and password.";
+    in-out property <string> dlg-remote-confirm: "Connect";
+    in-out property <string> dlg-new-folder-title: "New folder";
+    in-out property <string> dlg-new-folder-label: "Folder name:";
+    in-out property <string> dlg-new-folder-default: "New folder";
+    in-out property <string> dlg-new-folder-create: "Create";
+    in-out property <string> dlg-new-file-title: "New empty file";
+    in-out property <string> dlg-new-file-label: "File name:";
+    in-out property <string> dlg-new-file-default: "untitled.txt";
+    in-out property <string> dlg-new-file-create: "Create";
+    in-out property <string> dlg-bulk-open-title: "Open many items?";
+    in-out property <string> dlg-bulk-open-body: "You are about to open multiple items at once. Continue?";
+    in-out property <string> dlg-bulk-open-confirm: "Open all";
+    in-out property <string> dlg-nav-error-title: "Cannot open this location";
+    in-out property <string> dlg-ok-close: "OK";
+    // Bulk rename
+    in-out property <string> bulk-rename-title: "Rename multiple files";
+    in-out property <string> bulk-rename-label: "Pattern:";
+    in-out property <string> bulk-rename-hint: "Placeholders: {idx} {3:idx} {name} {ext} {ext.}";
+    in-out property <string> bulk-rename-apply: "Rename";
+    in-out property <string> bulk-rename-original: "Original";
+    in-out property <string> bulk-rename-new: "New name";
+    in-out property <string> bulk-rename-conflicts: "Conflicts:";
+    // Settings popup
+    in-out property <string> settings-dark-theme: "Dark theme";
+    in-out property <string> settings-dark-hint: "Switch app between dark and light";
+    in-out property <string> settings-show-hidden: "Show hidden files";
+    in-out property <string> settings-hidden-hint: "Files and folders starting with a dot";
+    in-out property <string> settings-auto-refresh: "Auto-refresh on changes";
+    in-out property <string> settings-watcher-hint: "Watch current folder for changes (off by default)";
+    in-out property <string> settings-thumb-size: "Thumbnail size";
+    in-out property <string> settings-thumb-mem: "Thumbnail memory limit";
+    in-out property <string> settings-thumb-mem-hint: "Stop loading images once this much RAM is used by thumbnails";
+    in-out property <string> settings-thumb-hint: "Resolution of generated previews";
+    in-out property <string> settings-icon-style: "Icon style";
+    in-out property <string> settings-icon-hint: "Monochrome or colored file icons";
+    // Search bar
+    in-out property <string> search-placeholder: "Search in current folder…";
+    in-out property <string> search-status-pending: "Searching…";
+    in-out property <string> search-status-results: "results";
+    in-out property <string> search-clear: "Clear";
+    // Progress dialog
+    in-out property <string> progress-op-copy: "Copying";
+    in-out property <string> progress-op-move: "Moving";
+    in-out property <string> progress-op-compress: "Compressing";
+    in-out property <string> progress-op-collecting: "Collecting files";
+    in-out property <string> progress-files-of: "of";
+    in-out property <string> progress-pause: "Pause";
+    in-out property <string> progress-resume: "Resume";
+    // Conflict (file already exists) dialog
+    in-out property <string> conflict-title: "Item already exists";
+    in-out property <string> conflict-message: "already exists in the destination. What would you like to do?";
+    in-out property <string> conflict-replace: "Replace";
+    in-out property <string> conflict-skip: "Skip";
+    in-out property <string> conflict-keep-both: "Keep both";
+    in-out property <string> conflict-apply-all: "Apply to all remaining conflicts";
+    // Places sidebar sections
+    in-out property <string> places-section-computer: "Computer";
+    in-out property <string> places-section-places: "Places";
+    in-out property <string> places-section-bookmarks: "Bookmarks";
+    in-out property <string> places-trash: "Trash";
+    in-out property <string> menu-add-bookmark: "Add to bookmarks";
+    in-out property <string> menu-remove-bookmark: "Remove bookmark";
+    in-out property <string> places-section-devices: "Devices";
+    in-out property <string> places-device-not-mounted: "(not mounted)";
+    // Properties dialog
+    in-out property <string> props-title: "Properties";
+    in-out property <string> props-name: "Name";
+    in-out property <string> props-path: "Location";
+    in-out property <string> props-kind: "Kind";
+    in-out property <string> props-size: "Size";
+    in-out property <string> props-files: "Contents";
+    in-out property <string> props-modified: "Modified";
+    in-out property <string> props-accessed: "Accessed";
+    in-out property <string> props-created: "Created";
+    in-out property <string> props-owner: "Owner";
+    in-out property <string> props-group: "Group";
+    in-out property <string> props-mode: "Permissions";
+    in-out property <string> props-computing: "computing…";
+    in-out property <string> props-close: "Close";
+    in-out property <string> props-tab-general: "General";
+    in-out property <string> props-tab-permissions: "Permissions";
+    in-out property <string> props-perm-owner: "Owner";
+    in-out property <string> props-perm-group: "Group";
+    in-out property <string> props-perm-other: "Others";
+    in-out property <string> props-perm-read: "Read";
+    in-out property <string> props-perm-write: "Write";
+    in-out property <string> props-perm-exec: "Execute";
+    in-out property <string> props-apply: "Apply";
+}
+
+export struct PathSegment {
+    label: string,    // visible name; "/" for root
+    full-path: string, // absolute path navigated to on click
+}
+
+export struct TabInfo {
+    title: string,
+    is-active: bool,
+    // Folder this tab is showing; "" for non-local. Drop target for DnD.
+    path: string,
+}
+
+// ─── AppState — view state pushed by Rust ───────────────────────────────
+export global AppState {
+    in-out property <string> current-path: "/";
+    /// Human-readable summary of the current selection for the status bar's
+    /// left side (e.g. `3 folders selected (12 direct items), 2 files (5 MB)`).
+    /// Empty when nothing is selected, so the bar falls back to the item count.
+    in-out property <string> selection-summary: "";
+    /// Bumped on every click inside the file views; the main FocusScope watches
+    /// it and reclaims keyboard focus (the grid's ScrollView would otherwise
+    /// keep it and swallow global shortcuts like Delete).
+    in-out property <int> focus-nonce: 0;
+    in-out property <[PathSegment]> path-segments: [];
+    in-out property <bool> can-go-back: false;
+    in-out property <bool> can-go-forward: false;
+    in-out property <bool> can-go-up: false;
+    in-out property <bool> loading: false;
+    in-out property <string> status-text: "";
+    in-out property <string> error-text: "";
+    /// Pre-formatted "X GB free of Y GB" for the bottom bar — Rust refreshes
+    /// it whenever the current directory changes. Empty hides the indicator.
+    in-out property <string> disk-free-text: "";
+    /// Bumped by Rust after a keyboard navigation; FileListView watches this
+    /// and scrolls the target row into view.
+    in-out property <int> scroll-to-row: -1;
+    /// Live Ctrl-pressed flag tracked by the top-level FocusScope. Workaround
+    /// for Slint 1.16 issue #6263 — wheel events from the winit backend don't
+    /// carry the live modifier state, so scroll-event handlers must read this
+    /// instead of `event.modifiers.control`.
+    in-out property <bool> ctrl-held: false;
+    /// True while the toolbar path-bar is in free-edit mode (LineEdit shown
+    /// + focused). Exposed globally so the keyboard FocusScope can refocus
+    /// once the user leaves edit mode — otherwise focus stays on the now-
+    /// hidden LineEdit and every shortcut silently breaks.
+    in-out property <bool> path-edit-active: false;
+    /// True if the app is running as root (euid 0). Drives the warning
+    /// banner across the top of the window.
+    in-out property <bool> is-root: false;
+    /// Mirror of MainWindow.selected-count so popups can read it without
+    /// being prop-drilled.
+    in-out property <int> selected-count: 0;
+    /// Name of the default application for the currently-selected file
+    /// (single-selection only). Empty when unknown / multi / no selection.
+    in-out property <string> default-app-name: "";
+    /// True when any selected entry is an extractable archive (zip/7z/rar/
+    /// tar.*/gz/bz2/xz/zst). Drives the "Extract here" menu item.
+    in-out property <bool> selection-has-archive: false;
+    /// How many selected entries are directories. Drives the context-menu
+    /// "Open in new tab" / "Open in new tabs" item.
+    in-out property <int> selection-dir-count: 0;
+    /// True while the current view is the Trash. Drives the Restore / Empty
+    /// trash toolbar + context-menu actions.
+    in-out property <bool> in-trash: false;
+    /// The single selected directory is already a user bookmark. Drives the
+    /// file context-menu "Add ↔ Remove bookmark" toggle.
+    in-out property <bool> selection-is-bookmarked: false;
+    /// The single selected directory can be bookmarked — it's a dir that isn't
+    /// already reachable from Computer/Places (those are pointless to bookmark).
+    in-out property <bool> selection-can-bookmark: false;
+    /// The current folder is already a user bookmark. Drives the empty-area
+    /// folder context-menu toggle.
+    in-out property <bool> current-folder-is-bookmarked: false;
+    /// The current folder can be bookmarked (local dir not already in
+    /// Computer/Places).
+    in-out property <bool> current-folder-can-bookmark: false;
+}
+
+// ─── Callabler — every "user did X" callback Rust should react to ──────
+export global Callabler {
+    callback navigate-to(string);
+    callback navigate-back();
+    callback navigate-forward();
+    callback navigate-up();
+    callback navigate-home();
+    callback refresh();
+    callback toggle-hidden();
+    callback toggle-theme();
+    callback toggle-auto-refresh();
+    callback row-activated(int);
+    /// Enter key on the current selection: navigate into a single folder,
+    /// open a single file, or open all (with bulk-confirm) for multi.
+    callback activate-selection();
+    callback select-row(int, SelectMode);
+    callback select-all();
+    callback select-none();
+    callback nav-selection(NavKey, bool);     // (key, shift-held)
+    callback sort-by(SortKey);
+    // Rubber-band selection: x1,y1,x2,y2 are pixel coords inside the grid origin.
+    // tile-w/tile-h/cell-w/cols/gutter are needed for the Rust-side hit test.
+    // Snapshot the selection when a rubber-band drag starts (for Ctrl toggle).
+    callback rubberband-begin();
+    // …, ctrl: last bool toggles intersected items against the snapshot instead
+    // of replacing the selection.
+    callback rubberband-select(float, float, float, float, float, float, float, int, float, bool);
+    /// Step the item-size by ±1 (clamped 1..=7). Wired to Ctrl+wheel and the
+    /// 7-step status-bar widget.
+    callback cycle-item-size(int);
+    /// Diagnostics for the Ctrl+wheel interaction. Slint 1.16's winit backend
+    /// strips modifier state out of wheel events, so we track ctrl on a global
+    /// updated by the top-level FocusScope's key handlers. This callback logs
+    /// every wheel hit (with the current global ctrl flag) so users can pin
+    /// down whether the issue is a missed key event, the wheel firing on a
+    /// component that didn't reach this handler, or something else.
+    callback debug-wheel(string, float, bool);
+    /// Logged whenever the top-level FocusScope sees a key event — both press
+    /// and release — so we can see when ctrl-held flips on/off.
+    callback debug-ctrl-change(bool, string);
+
+    // File operations
+    callback clipboard-cut();
+    callback clipboard-copy();
+    // Copy the selected item path(s) to the system clipboard as text.
+    callback copy-path();
+    callback clipboard-paste();
+    callback open-default-app();
+    callback bulk-open-confirmed();
+    callback move-to-trash();
+    callback restore-from-trash();
+    callback empty-trash();
+    callback empty-trash-confirmed();
+
+    // ── Remote (ssh/smb/ftp) mounting via GVFS ──
+    callback remote-mount-confirmed(string);
+    callback remote-mount-cancelled();
+    callback request-rename();
+    callback rename-confirmed(string);
+    callback bulk-rename-preview(string);
+    callback bulk-rename-apply(string);
+    callback request-delete-permanently();
+    callback delete-confirmed();
+
+    // Sidebar / bookmarks
+    callback place-clicked(string);
+    /// Add or remove a bookmark for the single selected directory, depending on
+    /// whether it's currently bookmarked.
+    callback toggle-bookmark-of-selected();
+    /// Add or remove a bookmark for the current folder (empty-area menu).
+    callback toggle-bookmark-of-current();
+    callback remove-bookmark(string);
+    /// Search context-menu only: navigate to the parent folder of the (single)
+    /// selected search hit, dropping search mode.
+    callback open-containing-folder();
+
+    // Properties
+    callback request-properties();
+    callback properties-closed();
+    // Apply edited Unix permission bits (decimal value of the octal mode) to
+    // the file shown in the Properties dialog.
+    callback apply-permissions(int);
+
+    // Search
+    callback open-search();
+    callback close-search();
+    callback search-query-changed(string);
+
+    // UDisks / removable devices
+    callback devices-changed();
+    callback mount-device(string);
+    callback unmount-device(string);
+
+    // New folder / file
+    callback request-new-folder();
+    callback new-folder-confirmed(string);
+    callback create-empty-file();
+    callback new-file-confirmed(string);
+
+    // Current-folder properties (right-click on empty area)
+    callback request-folder-properties();
+    /// Spawn a terminal in `path` (selected folder or current dir).
+    callback open-in-terminal(string);
+    /// Spawn a new instance of this app as root, browsing `path`.
+    callback open-as-root(string);
+
+    // Archive extraction
+    /// "Extract here" right-click target. Operates on whatever is selected.
+    callback extract-selected();
+    /// User submitted a password from the prompt — retry the current archive.
+    callback extract-password-confirmed(string);
+    /// User dismissed the prompt — abandon the remaining queue.
+    callback extract-cancelled();
+
+    // Settings panel: switches change Settings directly; these no-op callbacks
+    // exist so glue code can react (e.g. attach/detach watcher).
+    callback toggle-hidden-noop();
+    callback toggle-watcher-noop();
+    // Thumbnail resolution changed in settings → re-generate for current view.
+    callback thumb-size-changed(int);
+    // Thumbnail memory budget changed in settings (value in MiB) → update the
+    // live cap and re-generate so freshly-allowed rows fill in.
+    callback thumb-mem-budget-changed(int);
+
+    // Tabs
+    callback new-tab();
+    callback close-tab(int);
+    callback switch-tab(int);
+    // Open the single selected folder in a new tab of the active pane.
+    callback open-in-new-tab();
+    // Pane-aware tab ops used by the per-pane tab strips. `is-right` is the
+    // physical side of the strip; the handler focuses that pane (swapping the
+    // active pane if needed) before acting on it.
+    callback tab-new-in(bool /* is-right */);
+    callback tab-close-in(bool /* is-right */, int /* idx */);
+    callback tab-switch-in(bool /* is-right */, int /* idx */);
+
+    // Split view
+    callback toggle-split();
+    callback swap-active-pane();
+
+    // Undo / redo (Ctrl+Z / Ctrl+Y) of reversible file operations.
+    callback undo();
+    callback redo();
+
+    // Internal drag-and-drop. start-drag passes the pressed row index (active
+    // pane); drop-dragged passes whether Ctrl was held (copy instead of move).
+    callback start-drag(int);
+    callback drop-dragged(bool);
+    callback cancel-drag();
+
+    // Open-with picker. request-open-with builds the app list for the current
+    // selection; open-with-chosen launches the picked .desktop id (set-default
+    // = also persist it as the default for the file type).
+    callback request-open-with();
+    callback open-with-chosen(string, bool);
+    // Run a typed command on the selection; bool = remember it in the list.
+    callback open-with-command(string, bool);
+
+    // Create an archive from the selection. compress-confirmed(name, format, pw)
+    // where format: 0=zip, 1=7z, 2=tar.gz.
+    callback request-compress();
+    callback compress-confirmed(string, int, string);
+    // Resolve a copy/move conflict. First arg: 0=replace, 1=skip, 2=keep-both,
+    // 3=cancel. Second arg: apply to all remaining conflicts.
+    callback conflict-chosen(int, bool);
+}
+
+// ─── DialogState — drives the modal popup overlays ──────────────────────
+export global DialogState {
+    in-out property <bool> delete-confirm-open: false;
+    in-out property <bool> rename-open: false;
+    in-out property <bool> properties-open: false;
+    in-out property <bool> new-folder-open: false;
+    in-out property <bool> new-file-open: false;
+    in-out property <bool> bulk-rename-open: false;
+    in-out property <bool> empty-trash-confirm-open: false;
+    in-out property <bool> remote-mount-open: false;
+    in-out property <string> remote-host: "";
+    in-out property <bool> remote-error: false;
+    in-out property <bool> nav-error-open: false;
+    in-out property <bool> open-with-open: false;
+    // Human-readable file type shown as the dialog subtitle (e.g. "text/plain").
+    in-out property <string> open-with-subtitle: "";
+    in-out property <bool> compress-open: false;
+    in-out property <string> compress-default-name: "archive";
+    in-out property <string> rename-initial: "";
+    in-out property <string> new-file-initial: "untitled.txt";
+    in-out property <string> nav-error-message: "";
+    // Empty → use the default "Cannot open this location" title; non-empty
+    // overrides it (e.g. copy/move failure summaries reuse this dialog).
+    in-out property <string> nav-error-title: "";
+    in-out property <string> bulk-rename-pattern: "{name}_{2:idx}{ext.}";
+    in-out property <int> delete-target-count: 0;
+    in-out property <int> bulk-rename-conflicts: 0;
+    in-out property <bool> bulk-open-confirm-open: false;
+    in-out property <int> bulk-open-count: 0;
+    // Archive extraction password prompt.
+    in-out property <bool> extract-password-open: false;
+    /// Basename of the archive currently being extracted (shown in the prompt).
+    in-out property <string> extract-archive-name: "";
+    /// Last error from a previous attempt (empty on first prompt).
+    in-out property <string> extract-error: "";
+    // Copy/move conflict prompt (destination already exists).
+    in-out property <bool> conflict-open: false;
+    /// Basename of the conflicting item (shown in the prompt).
+    in-out property <string> conflict-name: "";
+    /// Bound to the "apply to all" checkbox; passed back on the chosen action.
+    in-out property <bool> conflict-apply-all: false;
+}
+
+// ─── ProgressDialogCallbacks ─────────────────────────────────────────────
+export global ProgressDialogCallbacks {
+    callback cancel-requested();
+    // Toggle pause; argument is the requested paused state.
+    callback pause-requested(bool);
+}
+
+// ─── SearchState — toggled by Ctrl+F, drives results model in Rust ──────
+export global SearchState {
+    in-out property <bool> active: false;
+    in-out property <string> query: "";
+    in-out property <bool> searching: false;
+    in-out property <int> result-count: 0;
+}
+
+// ─── DragState — internal drag-and-drop of file rows/tiles ──────────────
+// The source row keeps the pointer grab while dragging, so it writes the live
+// cursor position (window coords) here; every visible row reads it to decide
+// whether the cursor is over it (a drop target), with no hover events needed.
+export global DragState {
+    in-out property <bool> active: false;
+    in-out property <length> cursor-x;
+    in-out property <length> cursor-y;
+    // Ghost contents.
+    in-out property <string> label;
+    in-out property <string> icon: "file-generic";
+    in-out property <int> count: 0;
+    // Drop target: set by whichever folder the cursor currently contains.
+    in-out property <bool> has-target: false;
+    // Path-based target (sidebar place / tab). Non-empty takes precedence over
+    // the index-based file-row target below.
+    in-out property <string> target-path: "";
+    in-out property <int> target-row: -1;
+    in-out property <bool> target-active-pane: true;
+}

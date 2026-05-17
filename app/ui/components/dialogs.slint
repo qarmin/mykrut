@@ -1,0 +1,781 @@
+import { ColorPalette, Translations, Callabler, DialogState } from "../globals.slint";
+import { Button, LineEdit, CheckBox, ListView, ComboBox } from "std-widgets.slint";
+import { Icon } from "../icons.slint";
+import { OpenWithApp } from "structs.slint";
+
+component DialogShell inherits Rectangle {
+    in property <length> dialog-width: 360px;
+    in property <length> dialog-height: 160px;
+
+    callback rejected();
+
+    background: #00000088;
+
+    scrim := TouchArea {
+        clicked => { root.rejected(); }
+        scroll-event(event) => { accept }
+    }
+
+    Rectangle {
+        x: (parent.width - root.dialog-width) / 2;
+        y: (parent.height - root.dialog-height) / 2;
+        width: root.dialog-width;
+        height: root.dialog-height;
+        background: ColorPalette.bg-panel;
+        border-color: ColorPalette.border-subtle;
+        border-width: 1px;
+        border-radius: 10px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000080;
+
+        // Catch clicks inside so they don't propagate to the scrim.
+        TouchArea {}
+
+        @children
+    }
+}
+
+export component DeleteConfirmDialog inherits DialogShell {
+    dialog-width: 420px;
+    dialog-height: 180px;
+    rejected => { DialogState.delete-confirm-open = false; }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: Translations.dlg-delete-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-delete-body + " (" + DialogState.delete-target-count + " items)";
+            color: ColorPalette.text-secondary;
+            font-size: 13px;
+            wrap: word-wrap;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.delete-confirm-open = false; }
+            }
+            Button {
+                text: Translations.dlg-delete-confirm;
+                primary: true;
+                clicked => {
+                    DialogState.delete-confirm-open = false;
+                    Callabler.delete-confirmed();
+                }
+            }
+        }
+    }
+}
+
+export component RemoteMountDialog inherits DialogShell {
+    dialog-width: 460px;
+    dialog-height: 230px;
+    rejected => {
+        DialogState.remote-mount-open = false;
+        Callabler.remote-mount-cancelled();
+    }
+
+    init => {
+        edit.text = "";
+        edit.focus();
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+
+        Text {
+            text: Translations.dlg-remote-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-remote-body + " " + DialogState.remote-host;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+            wrap: word-wrap;
+            overflow: elide;
+        }
+
+        Text {
+            text: Translations.dlg-remote-error;
+            color: #e74c3c;
+            font-size: 12px;
+            wrap: word-wrap;
+            visible: DialogState.remote-error;
+        }
+
+        edit := LineEdit {
+            input-type: InputType.password;
+            placeholder-text: "Password";
+            accepted(t) => {
+                DialogState.remote-mount-open = false;
+                Callabler.remote-mount-confirmed(t);
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => {
+                    DialogState.remote-mount-open = false;
+                    Callabler.remote-mount-cancelled();
+                }
+            }
+            Button {
+                text: Translations.dlg-remote-confirm;
+                primary: true;
+                clicked => {
+                    DialogState.remote-mount-open = false;
+                    Callabler.remote-mount-confirmed(edit.text);
+                }
+            }
+        }
+    }
+}
+
+export component EmptyTrashConfirmDialog inherits DialogShell {
+    dialog-width: 420px;
+    dialog-height: 180px;
+    rejected => { DialogState.empty-trash-confirm-open = false; }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: Translations.dlg-empty-trash-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-empty-trash-body;
+            color: ColorPalette.text-secondary;
+            font-size: 13px;
+            wrap: word-wrap;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.empty-trash-confirm-open = false; }
+            }
+            Button {
+                text: Translations.dlg-empty-trash-confirm;
+                primary: true;
+                clicked => {
+                    DialogState.empty-trash-confirm-open = false;
+                    Callabler.empty-trash-confirmed();
+                }
+            }
+        }
+    }
+}
+
+export component NewFolderDialog inherits DialogShell {
+    dialog-width: 420px;
+    dialog-height: 220px;
+    rejected => { DialogState.new-folder-open = false; }
+
+    init => {
+        edit.text = Translations.dlg-new-folder-default;
+        edit.focus();
+        edit.select-all();
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: Translations.dlg-new-folder-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-new-folder-label;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+        }
+
+        edit := LineEdit {
+            text: Translations.dlg-new-folder-default;
+            accepted(t) => {
+                DialogState.new-folder-open = false;
+                Callabler.new-folder-confirmed(t);
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.new-folder-open = false; }
+            }
+            Button {
+                text: Translations.dlg-new-folder-create;
+                primary: true;
+                clicked => {
+                    DialogState.new-folder-open = false;
+                    Callabler.new-folder-confirmed(edit.text);
+                }
+            }
+        }
+    }
+}
+
+export component NavErrorDialog inherits DialogShell {
+    dialog-width: 440px;
+    dialog-height: 180px;
+    rejected => { DialogState.nav-error-open = false; }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: DialogState.nav-error-title == "" ? Translations.dlg-nav-error-title : DialogState.nav-error-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: DialogState.nav-error-message;
+            color: ColorPalette.text-secondary;
+            font-size: 13px;
+            wrap: word-wrap;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            Button {
+                text: Translations.dlg-ok-close;
+                primary: true;
+                clicked => { DialogState.nav-error-open = false; }
+            }
+        }
+    }
+}
+
+export component NewFileDialog inherits DialogShell {
+    dialog-width: 420px;
+    dialog-height: 220px;
+    rejected => { DialogState.new-file-open = false; }
+
+    init => {
+        edit.text = DialogState.new-file-initial;
+        edit.focus();
+        edit.select-all();
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: Translations.dlg-new-file-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-new-file-label;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+        }
+
+        edit := LineEdit {
+            text: DialogState.new-file-initial;
+            accepted(t) => {
+                DialogState.new-file-open = false;
+                Callabler.new-file-confirmed(t);
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.new-file-open = false; }
+            }
+            Button {
+                text: Translations.dlg-new-file-create;
+                primary: true;
+                clicked => {
+                    DialogState.new-file-open = false;
+                    Callabler.new-file-confirmed(edit.text);
+                }
+            }
+        }
+    }
+}
+
+export component BulkOpenConfirmDialog inherits DialogShell {
+    dialog-width: 420px;
+    dialog-height: 180px;
+    rejected => { DialogState.bulk-open-confirm-open = false; }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: Translations.dlg-bulk-open-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-bulk-open-body
+                + " (" + DialogState.bulk-open-count + " items)";
+            color: ColorPalette.text-secondary;
+            font-size: 13px;
+            wrap: word-wrap;
+            vertical-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.bulk-open-confirm-open = false; }
+            }
+            Button {
+                text: Translations.dlg-bulk-open-confirm;
+                primary: true;
+                clicked => {
+                    DialogState.bulk-open-confirm-open = false;
+                    Callabler.bulk-open-confirmed();
+                }
+            }
+        }
+    }
+}
+
+export component ExtractPasswordDialog inherits DialogShell {
+    dialog-width: 460px;
+    dialog-height: 220px;
+    rejected => {
+        DialogState.extract-password-open = false;
+        Callabler.extract-cancelled();
+    }
+
+    init => {
+        edit.text = "";
+        edit.focus();
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+
+        Text {
+            text: Translations.dlg-extract-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: DialogState.extract-archive-name;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+            overflow: elide;
+        }
+
+        Text {
+            text: DialogState.extract-error != ""
+                ? Translations.dlg-extract-error-prefix + " " + Translations.dlg-extract-body
+                : Translations.dlg-extract-body;
+            color: DialogState.extract-error != "" ? #e74c3c : ColorPalette.text-secondary;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+
+        edit := LineEdit {
+            input-type: InputType.password;
+            placeholder-text: "Password";
+            accepted(t) => {
+                DialogState.extract-password-open = false;
+                Callabler.extract-password-confirmed(t);
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => {
+                    DialogState.extract-password-open = false;
+                    Callabler.extract-cancelled();
+                }
+            }
+            Button {
+                text: Translations.dlg-extract-confirm;
+                primary: true;
+                clicked => {
+                    DialogState.extract-password-open = false;
+                    Callabler.extract-password-confirmed(edit.text);
+                }
+            }
+        }
+    }
+}
+
+export component RenameDialog inherits DialogShell {
+    dialog-width: 420px;
+    dialog-height: 220px;
+    rejected => { DialogState.rename-open = false; }
+
+    init => {
+        edit.text = DialogState.rename-initial;
+        edit.focus();
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: Translations.dlg-rename-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-rename-label;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+        }
+
+        edit := LineEdit {
+            text: DialogState.rename-initial;
+            accepted(t) => {
+                DialogState.rename-open = false;
+                Callabler.rename-confirmed(t);
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.rename-open = false; }
+            }
+            Button {
+                text: Translations.dlg-ok;
+                primary: true;
+                clicked => {
+                    DialogState.rename-open = false;
+                    Callabler.rename-confirmed(edit.text);
+                }
+            }
+        }
+    }
+}
+
+export component OpenWithDialog inherits DialogShell {
+    in property <[OpenWithApp]> apps;
+    dialog-width: 440px;
+    dialog-height: 580px;
+    rejected => { DialogState.open-with-open = false; }
+
+    // Selected .desktop id. Defaults to the first (recommended apps sort first).
+    private property <string> chosen-id: apps.length > 0 ? apps[0].id : "";
+    private property <bool> set-default: false;
+
+    function commit() {
+        if (root.chosen-id != "") {
+            Callabler.open-with-chosen(root.chosen-id, root.set-default);
+        }
+        DialogState.open-with-open = false;
+    }
+
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+
+        Text {
+            text: Translations.dlg-open-with-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        Text {
+            text: DialogState.open-with-subtitle;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+            visible: DialogState.open-with-subtitle != "";
+        }
+
+        if apps.length == 0: Text {
+            text: Translations.dlg-open-with-empty;
+            color: ColorPalette.text-secondary;
+            font-size: 13px;
+            font-italic: true;
+            vertical-stretch: 1;
+        }
+
+        if apps.length > 0: ListView {
+            vertical-stretch: 1;
+            for app in apps: Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: app.id == root.chosen-id
+                    ? ColorPalette.bg-row-selected
+                    : row-ta.has-hover ? ColorPalette.bg-row-hover : transparent;
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        name: "open";
+                        size: 16px;
+                        tint: app.id == root.chosen-id ? ColorPalette.icon-tint-selected : ColorPalette.icon-tint;
+                    }
+                    Text {
+                        text: app.is-default ? app.name + " " + Translations.dlg-open-with-default-tag : app.name;
+                        color: app.id == root.chosen-id ? ColorPalette.text-on-selected : ColorPalette.text-primary;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        font-size: 13px;
+                        overflow: elide;
+                    }
+                }
+                row-ta := TouchArea {
+                    clicked => { root.chosen-id = app.id; }
+                    double-clicked => { root.chosen-id = app.id; root.commit(); }
+                }
+            }
+        }
+
+        CheckBox {
+            text: Translations.dlg-open-with-set-default;
+            checked <=> root.set-default;
+        }
+
+        Rectangle { height: 1px; background: ColorPalette.border-subtle; }
+
+        // Run an arbitrary command on the selection (and optionally remember it
+        // so it shows up in this list next time).
+        Text {
+            text: Translations.dlg-open-with-custom;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            custom-edit := LineEdit {
+                placeholder-text: Translations.dlg-open-with-custom-ph;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: Translations.dlg-open-with-run;
+                enabled: custom-edit.text != "";
+                clicked => {
+                    Callabler.open-with-command(custom-edit.text, remember-cb.checked);
+                    DialogState.open-with-open = false;
+                }
+            }
+        }
+        remember-cb := CheckBox { text: Translations.dlg-open-with-remember; }
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: end;
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.open-with-open = false; }
+            }
+            Button {
+                text: Translations.dlg-open-with-open;
+                primary: true;
+                enabled: root.chosen-id != "";
+                clicked => { root.commit(); }
+            }
+        }
+    }
+}
+
+export component CompressDialog inherits DialogShell {
+    dialog-width: 420px;
+    dialog-height: 320px;
+    rejected => { DialogState.compress-open = false; }
+
+    private property <int> fmt: 0; // 0=zip, 1=7z, 2=tar.gz
+
+    init => {
+        name-edit.text = DialogState.compress-default-name;
+        name-edit.focus();
+        name-edit.select-all();
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 10px;
+
+        Text {
+            text: Translations.dlg-compress-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: Translations.dlg-compress-name;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+        }
+        name-edit := LineEdit {
+            text: DialogState.compress-default-name;
+        }
+
+        Text {
+            text: Translations.dlg-compress-format;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+        }
+        ComboBox {
+            model: ["Zip (.zip)", "7z (.7z)", "Tar.gz (.tar.gz)"];
+            current-index <=> root.fmt;
+        }
+
+        Text {
+            text: root.fmt == 2 ? Translations.dlg-compress-password-na : Translations.dlg-compress-password;
+            color: ColorPalette.text-secondary;
+            font-size: 12px;
+        }
+        pw-edit := LineEdit {
+            input-type: InputType.password;
+            enabled: root.fmt != 2;
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: end;
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { DialogState.compress-open = false; }
+            }
+            Button {
+                text: Translations.dlg-compress-create;
+                primary: true;
+                enabled: name-edit.text != "";
+                clicked => {
+                    DialogState.compress-open = false;
+                    Callabler.compress-confirmed(name-edit.text, root.fmt, root.fmt == 2 ? "" : pw-edit.text);
+                }
+            }
+        }
+    }
+}
+
+export component ConflictDialog inherits DialogShell {
+    dialog-width: 460px;
+    dialog-height: 210px;
+    // Dismissing without choosing would leave the worker blocked forever, so a
+    // scrim click / Esc means Cancel the operation.
+    rejected => { Callabler.conflict-chosen(3, false); }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+
+        Text {
+            text: Translations.conflict-title;
+            color: ColorPalette.text-primary;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: "\"" + DialogState.conflict-name + "\" " + Translations.conflict-message;
+            color: ColorPalette.text-secondary;
+            font-size: 13px;
+            wrap: word-wrap;
+            vertical-stretch: 1;
+        }
+
+        CheckBox {
+            text: Translations.conflict-apply-all;
+            checked <=> DialogState.conflict-apply-all;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            Button {
+                text: Translations.dlg-cancel;
+                clicked => { Callabler.conflict-chosen(3, DialogState.conflict-apply-all); }
+            }
+            Button {
+                text: Translations.conflict-skip;
+                clicked => { Callabler.conflict-chosen(1, DialogState.conflict-apply-all); }
+            }
+            Button {
+                text: Translations.conflict-keep-both;
+                clicked => { Callabler.conflict-chosen(2, DialogState.conflict-apply-all); }
+            }
+            Button {
+                text: Translations.conflict-replace;
+                primary: true;
+                clicked => { Callabler.conflict-chosen(0, DialogState.conflict-apply-all); }
+            }
+        }
+    }
+}

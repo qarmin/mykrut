@@ -1,0 +1,99 @@
+// Slim search bar slot between the toolbar and the file view.
+// Visible while SearchState.active.
+
+import { ColorPalette, Translations, Callabler, SearchState } from "../globals.slint";
+import { Icon } from "../icons.slint";
+import { LineEdit, Spinner } from "std-widgets.slint";
+
+export component SearchBar inherits Rectangle {
+    height: 36px;
+    background: ColorPalette.bg-panel;
+
+    Rectangle {
+        x: 0; y: parent.height - 1px;
+        width: parent.width; height: 1px;
+        background: ColorPalette.border-subtle;
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        spacing: 8px;
+
+        // Icons and the spinner need a same-height slot so the layout's
+        // vertical centring kicks in — bare Icon/Spinner inside a
+        // HorizontalLayout lands at the top (the layout sizes each slot
+        // to the child's intrinsic height, not the row's).
+        Rectangle {
+            width: 16px;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                name: "search";
+                size: 16px;
+                tint: ColorPalette.icon-tint;
+            }
+        }
+
+        edit := LineEdit {
+            horizontal-stretch: 1;
+            placeholder-text: Translations.search-placeholder;
+            text: SearchState.query;
+            edited(text) => { Callabler.search-query-changed(text); }
+            accepted(text) => { Callabler.search-query-changed(text); }
+        }
+
+        // Auto-focus the moment the SearchBar materialises (Ctrl+F etc.).
+        // The naive `init => { edit.focus(); }` panics with "Recursion
+        // detected" inside i-slint-core because `init` fires during binding
+        // evaluation: focus() then reads `item_geometry` on a TextInput
+        // whose properties are still being computed. Bouncing through a
+        // one-shot Timer pushes the focus call to the next event-loop
+        // tick, by which point the layout has settled.
+        focus-defer := Timer {
+            interval: 1ms;
+            running: true;
+            triggered => {
+                focus-defer.running = false;
+                edit.focus();
+            }
+        }
+
+        if SearchState.searching: Rectangle {
+            width: 16px;
+            Spinner {
+                indeterminate: true;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 16px;
+                height: 16px;
+            }
+        }
+
+        Text {
+            text: SearchState.result-count + " " + Translations.search-status-results;
+            color: ColorPalette.text-secondary;
+            vertical-alignment: center;
+            font-size: 11px;
+        }
+
+        Rectangle {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            background: close-ta.has-hover ? ColorPalette.bg-row-hover : transparent;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                name: "delete";
+                size: 14px;
+            }
+            close-ta := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { Callabler.close-search(); }
+            }
+        }
+    }
+}

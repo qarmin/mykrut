@@ -1,0 +1,230 @@
+import { ColorPalette, Translations, Callabler, SearchState, AppState } from "../globals.slint";
+import { Icon } from "../icons.slint";
+
+component MenuItem inherits Rectangle {
+    in property <string> icon-name;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> destructive: false;
+    callback clicked();
+
+    height: 28px;
+    background: ta.has-hover && enabled
+        ? (destructive ? #c0392b.with-alpha(0.18) : ColorPalette.bg-row-hover)
+        : transparent;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 12px;
+        spacing: 8px;
+
+        Icon {
+            y: (parent.height - self.height) / 2;
+            name: icon-name;
+            size: 16px;
+            tint: !enabled
+                ? ColorPalette.text-secondary
+                : destructive ? #e74c3c : ColorPalette.icon-tint;
+        }
+
+        Text {
+            text: label;
+            color: !enabled
+                ? ColorPalette.text-secondary
+                : destructive ? #e74c3c : ColorPalette.text-primary;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            font-size: 12px;
+        }
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: enabled ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => { if root.enabled { root.clicked(); } }
+    }
+}
+
+component Divider inherits Rectangle {
+    height: 5px;
+    Rectangle {
+        x: 6px;
+        y: (parent.height - 1px) / 2;
+        width: parent.width - 12px;
+        height: 1px;
+        background: ColorPalette.border-subtle;
+    }
+}
+
+export component ContextMenu inherits Rectangle {
+    in property <bool> has-selection;
+    in property <bool> single-selection;
+    in property <bool> selection-is-dir;
+    in property <bool> selection-in-trash;
+    in property <bool> clipboard-has-items;
+    in-out property <length> pop-x;
+    in-out property <length> pop-y;
+
+    public function open() {
+        popup.show();
+    }
+
+    popup := PopupWindow {
+        x: root.pop-x;
+        y: root.pop-y;
+        width: 240px;
+        height: 420px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            background: ColorPalette.bg-panel;
+            border-color: ColorPalette.border-subtle;
+            border-width: 1px;
+            border-radius: 8px;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000060;
+            drop-shadow-offset-y: 4px;
+
+            VerticalLayout {
+                padding: 4px;
+                spacing: 0px;
+
+                MenuItem {
+                    icon-name: "open";
+                    // Multi: "Open N files". Single: prefer "Open with <NAME>"
+                    // when Rust resolved the default app, fall back to plain
+                    // "Open" while the lookup is still in flight.
+                    label: !single-selection
+                        ? (AppState.selected-count + " " + Translations.menu-open-multi)
+                        : (AppState.default-app-name != ""
+                            ? Translations.menu-open-with-prefix + " " + AppState.default-app-name
+                            : Translations.menu-open);
+                    enabled: has-selection;
+                    clicked => { Callabler.open-default-app(); popup.close(); }
+                }
+                // App picker for files (not folders): scans installed apps that
+                // handle the file type, with an option to set the default.
+                if has-selection && !selection-is-dir: MenuItem {
+                    icon-name: "open";
+                    label: Translations.menu-open-with-other;
+                    clicked => { popup.close(); Callabler.request-open-with(); }
+                }
+                // "Jump to the underlying folder" — only meaningful when the
+                // visible row is a search result (otherwise we'd be navigating
+                // to the very folder we're already in).
+                if SearchState.active: MenuItem {
+                    icon-name: "folder";
+                    label: Translations.menu-open-containing;
+                    enabled: has-selection && single-selection;
+                    clicked => { Callabler.open-containing-folder(); popup.close(); }
+                }
+                // Archive entry — only when at least one selected file looks
+                // like an extractable archive.
+                if has-selection && AppState.selection-has-archive: MenuItem {
+                    icon-name: "open";
+                    label: Translations.menu-extract;
+                    clicked => { Callabler.extract-selected(); popup.close(); }
+                }
+                // Open the selected folder(s) in fresh tab(s) of the active pane.
+                if AppState.selection-dir-count > 0: MenuItem {
+                    icon-name: "folder";
+                    label: AppState.selection-dir-count > 1
+                        ? Translations.menu-open-new-tabs
+                        : Translations.menu-open-new-tab;
+                    clicked => { popup.close(); Callabler.open-in-new-tab(); }
+                }
+                // Folder-only extras: open terminal / re-launch as root in
+                // the selected directory.
+                if single-selection && selection-is-dir: MenuItem {
+                    icon-name: "open";
+                    label: Translations.menu-open-terminal;
+                    clicked => { Callabler.open-in-terminal(""); popup.close(); }
+                }
+                if single-selection && selection-is-dir: MenuItem {
+                    icon-name: "settings";
+                    label: Translations.menu-open-as-root;
+                    enabled: !AppState.is-root;
+                    clicked => { Callabler.open-as-root(""); popup.close(); }
+                }
+                Divider {}
+                MenuItem {
+                    icon-name: "cut";
+                    label: Translations.menu-cut;
+                    enabled: has-selection;
+                    clicked => { Callabler.clipboard-cut(); popup.close(); }
+                }
+                MenuItem {
+                    icon-name: "copy";
+                    label: Translations.menu-copy;
+                    enabled: has-selection;
+                    clicked => { Callabler.clipboard-copy(); popup.close(); }
+                }
+                MenuItem {
+                    icon-name: "copy";
+                    label: Translations.menu-copy-path;
+                    enabled: has-selection;
+                    clicked => { Callabler.copy-path(); popup.close(); }
+                }
+                MenuItem {
+                    icon-name: "paste";
+                    label: Translations.menu-paste;
+                    enabled: clipboard-has-items;
+                    clicked => { Callabler.clipboard-paste(); popup.close(); }
+                }
+                Divider {}
+                // Toggle: shows "Remove bookmark" when the selected dir is
+                // already bookmarked, otherwise "Add to bookmarks". Disabled
+                // for dirs already reachable from Computer/Places (selection-
+                // can-bookmark is false there), so we don't add useless dupes.
+                MenuItem {
+                    icon-name: AppState.selection-is-bookmarked ? "delete" : "folder";
+                    label: AppState.selection-is-bookmarked
+                        ? Translations.menu-remove-bookmark
+                        : Translations.menu-add-bookmark;
+                    enabled: has-selection && single-selection && selection-is-dir
+                        && (AppState.selection-is-bookmarked || AppState.selection-can-bookmark);
+                    clicked => { popup.close(); Callabler.toggle-bookmark-of-selected(); }
+                }
+                MenuItem {
+                    icon-name: "rename";
+                    label: Translations.menu-rename;
+                    enabled: has-selection && single-selection;
+                    clicked => { popup.close(); Callabler.request-rename(); }
+                }
+                if !selection-in-trash: MenuItem {
+                    icon-name: "trash";
+                    label: Translations.menu-trash;
+                    enabled: has-selection;
+                    clicked => { Callabler.move-to-trash(); popup.close(); }
+                }
+                if selection-in-trash: MenuItem {
+                    icon-name: "back";
+                    label: Translations.menu-restore;
+                    enabled: has-selection;
+                    clicked => { Callabler.restore-from-trash(); popup.close(); }
+                }
+                MenuItem {
+                    icon-name: "delete";
+                    label: Translations.menu-delete;
+                    enabled: has-selection;
+                    destructive: true;
+                    clicked => { popup.close(); Callabler.request-delete-permanently(); }
+                }
+                Divider {}
+                // Sits between the destructive delete and Properties as a buffer,
+                // so aiming for Properties can't easily land on Delete permanently.
+                if has-selection: MenuItem {
+                    icon-name: "copy";
+                    label: Translations.menu-compress;
+                    clicked => { popup.close(); Callabler.request-compress(); }
+                }
+                MenuItem {
+                    icon-name: "properties";
+                    label: Translations.menu-properties;
+                    enabled: has-selection;
+                    clicked => { popup.close(); Callabler.request-properties(); }
+                }
+            }
+        }
+    }
+}
