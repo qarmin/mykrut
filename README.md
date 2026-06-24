@@ -6,6 +6,8 @@ The design was heavily inspired by [Nemo](https://github.com/linuxmint/nemo), wh
 
 > **Linux only.** The app uses zbus (UDisks2), MTP and inotify - no Windows/macOS support is planned.
 
+<div align="center"><img src="https://github.com/user-attachments/assets/36fe3429-0eb1-4375-a55c-f47ae69343eb" alt="screenshoot" width="800" /></div>
+
 ## Features
 
 - Two-pane split view - independent tabs, history and listing per pane, resizable divider
